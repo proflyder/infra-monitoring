@@ -1,0 +1,187 @@
+name: Deploy Monitoring Stack
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to GCP VM
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ─────────────────────────────────────────────────────────────
+      # Аутентификация в Google Cloud
+      # ─────────────────────────────────────────────────────────────
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCC_TOKEN }}
+
+      # ─────────────────────────────────────────────────────────────
+      # Установка gcloud CLI
+      # ─────────────────────────────────────────────────────────────
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # ─────────────────────────────────────────────────────────────
+      # Деплой мониторинга на VM
+      # ─────────────────────────────────────────────────────────────
+      - name: Deploy monitoring stack
+        env:
+          VM_NAME: ${{ secrets.GCC_VM_NAME }}
+          VM_ZONE: ${{ secrets.GCC_VM_ZONE }}
+          GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
+          GRAFANA_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+        run: |
+          # Проверка обязательных секретов
+          if [ -z "$VM_NAME" ]; then
+            echo "❌ ERROR: GCC_VM_NAME secret is not set!"
+            exit 1
+          fi
+
+          if [ -z "$VM_ZONE" ]; then
+            echo "❌ ERROR: GCC_VM_ZONE secret is not set!"
+            exit 1
+          fi
+
+          if [ -z "$GRAFANA_PASSWORD" ]; then
+            echo "⚠️  WARNING: GRAFANA_ADMIN_PASSWORD is not set!"
+            echo "Grafana will use default password 'admin'"
+          fi
+
+          echo "🚀 Deploying monitoring stack to VM: $VM_NAME in zone $VM_ZONE"
+
+          # Создаём временную директорию для файлов
+          TEMP_DIR=$(mktemp -d)
+
+          # Копируем все необходимые файлы
+          cp -r docker-compose.yml config .env.example "$TEMP_DIR/"
+
+          # Создаём .env файл с секретами
+          cat > "$TEMP_DIR/.env" <<EOF
+          GRAFANA_ADMIN_USER=${GRAFANA_USER}
+          GRAFANA_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+          EOF
+
+          # Создаём tar архив
+          tar -czf monitoring-stack.tar.gz -C "$TEMP_DIR" .
+
+          # Копируем архив на VM
+          echo "📦 Uploading files to VM..."
+          gcloud compute scp monitoring-stack.tar.gz "$VM_NAME:/tmp/" \
+            --zone="$VM_ZONE"
+
+          # Выполняем команды на VM
+          echo "🔧 Setting up monitoring stack..."
+          gcloud compute ssh "$VM_NAME" \
+            --zone="$VM_ZONE" \
+            --command="
+              set -e
+
+              echo '📂 Creating monitoring directory...'
+              sudo mkdir -p /opt/monitoring
+
+              echo '📦 Extracting files...'
+              sudo tar -xzf /tmp/monitoring-stack.tar.gz -C /opt/monitoring/
+              sudo rm /tmp/monitoring-stack.tar.gz
+
+              echo '🔒 Setting permissions...'
+              sudo chown -R root:root /opt/monitoring
+              sudo chmod 600 /opt/monitoring/.env
+
+              echo '🐳 Starting monitoring stack...'
+              sudo sh -c 'cd /opt/monitoring && docker compose down' || true
+              sudo sh -c 'cd /opt/monitoring && docker compose up -d'
+
+              echo '⏳ Waiting for services to start...'
+              sleep 15
+
+              echo '✅ Deployment completed!'
+            "
+
+          # Очистка
+          rm -rf "$TEMP_DIR" monitoring-stack.tar.gz
+
+          echo "✅ Successfully deployed monitoring stack to $VM_NAME"
+
+      # ─────────────────────────────────────────────────────────────
+      # Проверка здоровья после деплоя
+      # ─────────────────────────────────────────────────────────────
+      - name: Health check
+        env:
+          VM_NAME: ${{ secrets.GCC_VM_NAME }}
+          VM_ZONE: ${{ secrets.GCC_VM_ZONE }}
+        run: |
+          echo "🔍 Running health checks..."
+
+          gcloud compute ssh "$VM_NAME" \
+            --zone="$VM_ZONE" \
+            --command="
+              echo '📊 Container status:'
+              sudo sh -c 'cd /opt/monitoring && docker compose ps'
+
+              echo ''
+              echo '💾 Volume usage:'
+              sudo docker volume ls | grep monitoring
+
+              echo ''
+              echo '🌐 Loki health:'
+              curl -s http://localhost:3100/ready && echo '✅ Loki is ready' || echo '❌ Loki is not ready'
+
+              echo ''
+              echo '📈 Grafana health:'
+              curl -s http://localhost:3000/api/health | grep -q 'ok' && echo '✅ Grafana is ready' || echo '❌ Grafana is not ready'
+            "
+
+      # ─────────────────────────────────────────────────────────────
+      # Вывод информации о доступе
+      # ─────────────────────────────────────────────────────────────
+      - name: Display access info
+        run: |
+          echo ""
+          echo "═══════════════════════════════════════════════════════"
+          echo "✅ Monitoring Stack Deployed Successfully!"
+          echo "═══════════════════════════════════════════════════════"
+          echo ""
+          echo "📊 Grafana URL: https://proflyder.dev/grafana/"
+          echo "👤 Username: admin"
+          echo "🔑 Password: (from GRAFANA_ADMIN_PASSWORD secret)"
+          echo ""
+          echo "📝 Next steps:"
+          echo "1. Add nginx config from config/nginx-grafana.conf"
+          echo "2. Reload nginx: sudo systemctl reload nginx"
+          echo "3. Open https://proflyder.dev/grafana/ in browser"
+          echo ""
+          echo "═══════════════════════════════════════════════════════"
+
+# ═══════════════════════════════════════════════════════════════════
+# Требуемые GitHub Secrets:
+# ═══════════════════════════════════════════════════════════════════
+#
+# GCC_TOKEN                  - Google Cloud credentials JSON
+# GCC_VM_NAME                - Имя VM в GCP (например: proflyder-vm)
+# GCC_VM_ZONE                - Зона VM (например: us-central1-a)
+# GRAFANA_ADMIN_USER         - Username для Grafana (опционально, по умолчанию: admin)
+# GRAFANA_ADMIN_PASSWORD     - Пароль для Grafana admin пользователя
+#
+# ═══════════════════════════════════════════════════════════════════
+# Как работает деплой:
+# ═══════════════════════════════════════════════════════════════════
+#
+# 1. Checkout кода из репозитория
+# 2. Аутентификация в Google Cloud
+# 3. Создание tar архива с конфигами
+# 4. Копирование архива на VM через gcloud compute scp
+# 5. SSH на VM и выполнение команд:
+#    - Создание директории /opt/monitoring
+#    - Распаковка архива
+#    - docker compose up -d
+# 6. Health check
+# 7. Вывод информации о доступе
+#
+# ═══════════════════════════════════════════════════════════════════

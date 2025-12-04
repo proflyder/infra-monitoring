@@ -1,0 +1,374 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Requests per Endpoint (over time)",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "expr": "sum by (endpoint) (count_over_time({job=\"currency-bot\"} |~ `\\d{3}: (GET|POST|PUT|DELETE|PATCH) - /` | regexp ` - (?P<endpoint>/[^\\s]+)` [${t_interval}${t_unit}]))",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "legendFormat": "{{endpoint}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["last", "mean", "max"]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "auto"
+          },
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total Requests (last ${t_interval}${t_unit})",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 6,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({job=\"currency-bot\"} |~ `\\d{3}: (GET|POST|PUT|DELETE|PATCH) - /` [${t_interval}${t_unit}]))",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          }
+        }
+      ],
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "auto",
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "value": null,
+                "color": "green"
+              },
+              {
+                "value": 100,
+                "color": "yellow"
+              },
+              {
+                "value": 500,
+                "color": "red"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "piechart",
+      "title": "Requests by Endpoint (last ${t_interval}${t_unit})",
+      "gridPos": {
+        "x": 6,
+        "y": 10,
+        "w": 9,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum by (endpoint) (count_over_time({job=\"currency-bot\"} |~ `\\d{3}: (GET|POST|PUT|DELETE|PATCH) - /` | regexp ` - (?P<endpoint>/[^\\s]+)` [${t_interval}${t_unit}]))",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "legendFormat": "{{endpoint}}",
+          "queryType": "instant"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": ["value", "percent"]
+        },
+        "pieType": "donut",
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "piechart",
+      "title": "Requests by Status Code (last ${t_interval}${t_unit})",
+      "gridPos": {
+        "x": 15,
+        "y": 10,
+        "w": 9,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum by (status) (count_over_time({job=\"currency-bot\"} |~ `\\d{3}: (GET|POST|PUT|DELETE|PATCH) - /` | regexp `(?P<status>\\d{3}):` [${t_interval}${t_unit}]))",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "legendFormat": "{{status}}",
+          "queryType": "instant"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": ["value", "percent"]
+        },
+        "pieType": "pie",
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "2.."
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "4.."
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "5.."
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Requests by HTTP Method",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (method) (count_over_time({job=\"currency-bot\"} |~ `\\d{3}: (GET|POST|PUT|DELETE|PATCH) - /` | regexp `\\d{3}: (?P<method>GET|POST|PUT|DELETE|PATCH)` [${t_interval}${t_unit}]))",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "legendFormat": "{{method}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Error Rate (4xx and 5xx)",
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({job=\"currency-bot\"} |~ `[45]\\d{2}: (GET|POST|PUT|DELETE|PATCH)` [${t_interval}${t_unit}]))",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "legendFormat": "Errors (4xx/5xx)"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          }
+        }
+      }
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "tags": ["requests", "api", "currency-bot"],
+  "templating": {
+    "list": [
+      {
+        "name": "t_interval",
+        "type": "textbox",
+        "label": "Time Interval",
+        "query": "1",
+        "current": {
+          "text": "1",
+          "value": "1"
+        },
+        "hide": 0
+      },
+      {
+        "name": "t_unit",
+        "type": "custom",
+        "label": "Time Unit",
+        "query": "s,m,h,d,w",
+        "current": {
+          "text": "hour",
+          "value": "h"
+        },
+        "options": [
+          { "text": "second", "value": "s" },
+          { "text": "minute", "value": "m" },
+          { "text": "hour", "value": "h", "selected": true },
+          { "text": "day", "value": "d" },
+          { "text": "week", "value": "w" }
+        ],
+        "multi": false,
+        "includeAll": false,
+        "hide": 0
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Currency Bot - API Requests",
+  "uid": "currency-bot-requests",
+  "version": 1
+}
