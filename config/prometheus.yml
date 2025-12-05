@@ -1,0 +1,91 @@
+# ═══════════════════════════════════════════════════════════════════
+# Prometheus Configuration
+# Сбор метрик с проектов proflyder
+# ═══════════════════════════════════════════════════════════════════
+
+global:
+  scrape_interval: 15s      # Как часто собирать метрики
+  evaluation_interval: 15s  # Как часто проверять правила
+
+  # Внешние labels (добавляются ко всем метрикам)
+  external_labels:
+    cluster: 'proflyder'
+    environment: 'production'
+
+# ───────────────────────────────────────────────────────────────────
+# Scrape Configs - откуда собирать метрики
+# ───────────────────────────────────────────────────────────────────
+scrape_configs:
+  # ─────────────────────────────────────────────────────────────────
+  # Currency Bot - метрики приложения
+  # ─────────────────────────────────────────────────────────────────
+  - job_name: 'currency-bot'
+
+    # Интервал сбора метрик для этого job
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+    # Endpoint для сбора метрик
+    metrics_path: '/metrics'
+
+    # Таргеты (приложения)
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+        labels:
+          service: 'currency-bot'
+          app: 'ktor'
+          job_type: 'application'
+
+    # Relabeling - добавляем/изменяем labels
+    relabel_configs:
+      # Сохраняем оригинальный адрес
+      - source_labels: [__address__]
+        target_label: instance
+
+  # ─────────────────────────────────────────────────────────────────
+  # Node Exporter - системные метрики VM
+  # ─────────────────────────────────────────────────────────────────
+  - job_name: 'node-exporter'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'node-exporter'
+          job_type: 'system'
+          instance: 'proflyder-vm'
+
+  # ─────────────────────────────────────────────────────────────────
+  # Prometheus Self-Monitoring
+  # ─────────────────────────────────────────────────────────────────
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+          job_type: 'monitoring'
+
+# ───────────────────────────────────────────────────────────────────
+# Alerting Configuration (опционально)
+# ───────────────────────────────────────────────────────────────────
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: []
+
+# ───────────────────────────────────────────────────────────────────
+# Rule Files (опционально - для алертов)
+# ───────────────────────────────────────────────────────────────────
+# rule_files:
+#   - "alerts.yml"
+
+# ═══════════════════════════════════════════════════════════════════
+# Примеры добавления других проектов:
+# ═══════════════════════════════════════════════════════════════════
+#
+# - job_name: 'another-service'
+#   static_configs:
+#     - targets: ['host.docker.internal:9091']
+#       labels:
+#         service: 'another-service'
+#
+# ═══════════════════════════════════════════════════════════════════

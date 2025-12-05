@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-# Loki Configuration
+# Loki 3.3 Configuration
 # Централизованное хранилище логов для всех проектов proflyder
 # ═══════════════════════════════════════════════════════════════════
 
@@ -14,52 +14,65 @@ server:
   http_server_idle_timeout: 3m
 
 # ───────────────────────────────────────────────────────────────────
+# Common - общие настройки для всех компонентов (Loki 3.x)
+# ───────────────────────────────────────────────────────────────────
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+    instance_addr: 127.0.0.1
+
+# ───────────────────────────────────────────────────────────────────
+# Schema Config - TSDB индекс (Loki 3.x)
+# ───────────────────────────────────────────────────────────────────
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# ───────────────────────────────────────────────────────────────────
+# Pattern Ingester - для распознавания паттернов в логах (Loki 3.x)
+# ───────────────────────────────────────────────────────────────────
+pattern_ingester:
+  enabled: false
+
+# ───────────────────────────────────────────────────────────────────
 # Ingester - компонент для приёма и буферизации логов
 # ───────────────────────────────────────────────────────────────────
 ingester:
-  lifecycler:
-    address: 127.0.0.1
-    ring:
-      kvstore:
-        store: inmemory
-      replication_factor: 1
-    final_sleep: 0s
-
   # WAL (Write-Ahead Log) configuration
   wal:
     enabled: true
     dir: /loki/wal
+    flush_on_shutdown: true
 
   # Размер чанков (блоков логов)
   chunk_idle_period: 5m
   chunk_retain_period: 30s
   max_chunk_age: 1h
 
-  # Лимиты для ресурсов
-  max_transfer_retries: 0
-
-# ───────────────────────────────────────────────────────────────────
-# Schema Config - определяет как данные индексируются и хранятся
-# ───────────────────────────────────────────────────────────────────
-schema_config:
-  configs:
-    - from: 2023-01-01
-      store: boltdb-shipper
-      object_store: filesystem
-      schema: v11
-      index:
-        prefix: index_
-        period: 24h
+  # Быстрый старт для dev окружения
+  chunk_target_size: 1048576
 
 # ───────────────────────────────────────────────────────────────────
 # Storage Config - настройки хранилища
 # ───────────────────────────────────────────────────────────────────
 storage_config:
-  boltdb_shipper:
-    active_index_directory: /loki/boltdb-shipper-active
-    cache_location: /loki/boltdb-shipper-cache
+  tsdb_shipper:
+    active_index_directory: /loki/tsdb-index
+    cache_location: /loki/tsdb-cache
     cache_ttl: 24h
-    shared_store: filesystem
 
   filesystem:
     directory: /loki/chunks
@@ -69,11 +82,11 @@ storage_config:
 # ───────────────────────────────────────────────────────────────────
 compactor:
   working_directory: /loki/compactor
-  shared_store: filesystem
   compaction_interval: 10m
   retention_enabled: true
   retention_delete_delay: 2h
   retention_delete_worker_count: 150
+  delete_request_store: filesystem
 
 # ───────────────────────────────────────────────────────────────────
 # Limits Config - лимиты для предотвращения перегрузки
@@ -83,81 +96,92 @@ limits_config:
   retention_period: 336h  # 14 дней
 
   # Лимиты на запросы
-  max_query_length: 337h  # Чуть больше retention_period
+  max_query_length: 337h
   max_query_lookback: 336h
-  max_streams_per_user: 5000  # Уменьшено для 1 ядра
-  max_entries_limit_per_query: 10000  # Для 1 ядра
+  max_streams_per_user: 5000
+  max_entries_limit_per_query: 10000
 
   # Лимиты на входящие данные
-  ingestion_rate_mb: 10  # 10 MB/s на stream
-  ingestion_burst_size_mb: 20  # Burst до 20 MB
+  ingestion_rate_mb: 10
+  ingestion_burst_size_mb: 20
   per_stream_rate_limit: 3MB
   per_stream_rate_limit_burst: 15MB
 
   # Лимиты на размер одного лог-сообщения
   max_line_size: 256KB
 
-  # Лимиты на query performance (для 1 CPU core)
-  max_query_parallelism: 4  # Максимум 4 параллельных запроса для 1 ядра
-  max_query_series: 5000  # Уменьшено для 1 ядра
-  query_timeout: 2m  # Таймаут на запрос
+  # Лимиты на query performance
+  max_query_parallelism: 4
+  max_query_series: 5000
+  query_timeout: 2m
 
   # Разбиение длинных запросов на части
-  split_queries_by_interval: 30m  # Меньшие части для 1 ядра
+  split_queries_by_interval: 30m
+
+  # Отключаем reject_old_samples для dev
+  reject_old_samples: false
+  reject_old_samples_max_age: 168h
 
 # ───────────────────────────────────────────────────────────────────
-# Chunk Store Config - настройки кеша
-# ───────────────────────────────────────────────────────────────────
-chunk_store_config:
-  max_look_back_period: 336h  # Соответствует retention
-
-# ───────────────────────────────────────────────────────────────────
-# Table Manager - управление таблицами (deprecated, но нужен)
-# ───────────────────────────────────────────────────────────────────
-table_manager:
-  retention_deletes_enabled: true
-  retention_period: 336h
-
-# ───────────────────────────────────────────────────────────────────
-# Query Frontend - кеширование и оптимизация запросов
+# Query Range - кеширование и оптимизация запросов
 # ───────────────────────────────────────────────────────────────────
 query_range:
-  # Выравнивает запросы для лучшего кеширования
   align_queries_with_step: true
+  cache_results: true
+  max_retries: 5
 
-  # Кеш для результатов (ограничено для 1 ядра)
   results_cache:
     cache:
       embedded_cache:
         enabled: true
         max_size_mb: 64
 
-  # Кеш для частичных результатов
-  cache_results: true
-  max_retries: 5
+# ───────────────────────────────────────────────────────────────────
+# Ruler - для алертов (опционально)
+# ───────────────────────────────────────────────────────────────────
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+  rule_path: /loki/rules-temp
+  ring:
+    kvstore:
+      store: inmemory
+  enable_api: true
+  enable_alertmanager_v2: true
 
 # ═══════════════════════════════════════════════════════════════════
 # Описание конфигурации:
 # ═══════════════════════════════════════════════════════════════════
 #
+# ОБНОВЛЕНО ДЛЯ LOKI 3.3:
+# ───────────────────────────────────────────────────────────────────
+# - Используется новый TSDB индекс вместо boltdb-shipper
+# - Схема v13 (последняя стабильная для Loki 3.x)
+# - Добавлен common блок для общих настроек
+# - Удалены все deprecated поля (lifecycler, table_manager, chunk_store_config)
+# - Добавлен pattern_ingester (можно включить для ML паттернов)
+# - Оптимизирован для быстрого старта
+#
 # RETENTION (СРОК ХРАНЕНИЯ):
 # ───────────────────────────────────────────────────────────────────
 # - Логи хранятся 14 дней (336h)
 # - Автоматическое удаление старых логов каждые 10 минут
-# - Можно изменить retention_period на нужное значение
 #
 # ЛИМИТЫ:
 # ───────────────────────────────────────────────────────────────────
 # - Максимум 10 MB/s входящего потока логов
-# - Максимум 10,000 streams на пользователя
+# - Максимум 5000 streams на пользователя
 # - Максимум 256 KB на одно лог-сообщение
-# - До 10,000 строк на запрос (увеличено с 5000)
-# - Параллелизм запросов: 32 потока
+# - До 10,000 строк на запрос
+# - Параллелизм запросов: 4 потока
 #
 # ПРОИЗВОДИТЕЛЬНОСТЬ:
 # ───────────────────────────────────────────────────────────────────
-# - Кеширование запросов (100 MB)
+# - Кеширование запросов (64 MB)
 # - Компактификация каждые 10 минут
+# - TSDB индекс быстрее чем boltdb-shipper
 # - Оптимизировано для небольших/средних проектов
 #
 # МОНИТОРИНГ LOKI:

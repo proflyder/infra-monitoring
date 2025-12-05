@@ -3,7 +3,7 @@ services:
   # Loki - централизованное хранилище логов
   # ═══════════════════════════════════════════════════════════════════
   loki:
-    image: grafana/loki:2.9.3
+    image: grafana/loki:3.3.2
     container_name: loki
     ports:
       - "0.0.0.0:3100:3100"  # Доступен для Promtail из других Docker сетей
@@ -16,17 +16,71 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready 2>&1 || exit 1"]
-      interval: 30s
+      interval: 5s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 30s
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Node Exporter - системные метрики VM (CPU, Memory, Disk, Network)
+  # ═══════════════════════════════════════════════════════════════════
+  node-exporter:
+    image: prom/node-exporter:v1.10.2
+    container_name: node-exporter
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    ports:
+      - "127.0.0.1:9100:9100"
+    networks:
+      - monitoring
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9100/metrics 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Prometheus - сбор и хранение метрик
+  # ═══════════════════════════════════════════════════════════════════
+  prometheus:
+    image: prom/prometheus:v3.8.0
+    container_name: prometheus
+    ports:
+      - "127.0.0.1:9090:9090"  # Доступ только локально
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - monitoring
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9090/-/healthy 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   # ═══════════════════════════════════════════════════════════════════
   # Grafana - визуализация логов и метрик
   # Доступ: https://proflyder.dev/grafana/
   # ═══════════════════════════════════════════════════════════════════
   grafana:
-    image: grafana/grafana:10.2.3
+    image: grafana/grafana:12.1
     container_name: grafana
     ports:
       - "127.0.0.1:3000:3000"  # Доступ только через nginx
@@ -59,7 +113,9 @@ services:
       # Автоматическое создание дашбордов
       - ./config/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
       - ./config/grafana-dashboard-logs.json:/etc/grafana/provisioning/dashboards/logs.json
-      - ./config/grafana-dashboard-requests.json:/etc/grafana/provisioning/dashboards/requests.json
+      - ./config/grafana-dashboard-system.json:/etc/grafana/provisioning/dashboards/system.json
+      - ./config/grafana-dashboard-currency.json:/etc/grafana/provisioning/dashboards/currency.json
+      - ./config/grafana-dashboard-api.json:/etc/grafana/provisioning/dashboards/api.json
     networks:
       - monitoring
     restart: unless-stopped
@@ -68,10 +124,10 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health 2>&1 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
 # ═══════════════════════════════════════════════════════════════════
 # Networks - изолированная сеть для мониторинга
@@ -85,6 +141,8 @@ networks:
 # ═══════════════════════════════════════════════════════════════════
 volumes:
   loki-data:
+    driver: local
+  prometheus-data:
     driver: local
   grafana-data:
     driver: local
