@@ -95,7 +95,11 @@ limits_config:
   max_line_size: 256KB
 
   # Лимиты на query performance
-  max_query_parallelism: 32  # Параллелизм внутри запроса
+  max_query_parallelism: 16  # Параллелизм внутри запроса (уменьшено для стабильности)
+  max_query_series: 10000  # Максимум серий в одном запросе
+
+  # Разбиение длинных запросов на части
+  split_queries_by_interval: 15m
 
 # ───────────────────────────────────────────────────────────────────
 # Chunk Store Config - настройки кеша
@@ -114,11 +118,19 @@ table_manager:
 # Query Frontend - кеширование и оптимизация запросов
 # ───────────────────────────────────────────────────────────────────
 query_range:
+  # Выравнивает запросы для лучшего кеширования
+  align_queries_with_step: true
+
+  # Увеличенный кеш для результатов
   results_cache:
     cache:
       embedded_cache:
         enabled: true
-        max_size_mb: 100
+        max_size_mb: 256
+
+  # Кеш для частичных результатов
+  cache_results: true
+  max_retries: 5
 
 # ═══════════════════════════════════════════════════════════════════
 # Описание конфигурации:
