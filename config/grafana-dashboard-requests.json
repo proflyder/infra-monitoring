@@ -32,7 +32,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (endpoint) (count_over_time({job=\"currency-bot\"} |~ `(GET|POST|PUT|DELETE|PATCH) - /(?:api|telegram)` | regexp ` - (?P<endpoint>/(?:api|telegram)[^ ]*)` [${t_interval}${t_unit}]))",
+          "expr": "sum by (endpoint) (count_over_time({job=\"currency-bot\"} |~ `(GET|POST|PUT|DELETE|PATCH) - /(?:api|telegram)` | regexp ` - (?P<endpoint>/(?:api|telegram)[^ ]*)` [$__interval]))",
           "refId": "A",
           "datasource": {
             "type": "loki",
@@ -45,7 +45,11 @@
         "legend": {
           "displayMode": "table",
           "placement": "right",
-          "calcs": ["last", "mean", "max"]
+          "calcs": [
+            "last",
+            "mean",
+            "max"
+          ]
         },
         "tooltip": {
           "mode": "multi"
@@ -54,9 +58,16 @@
       "fieldConfig": {
         "defaults": {
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "barAlignment": 0,
             "lineWidth": 2,
             "fillOpacity": 10,
-            "showPoints": "auto"
+            "gradientMode": "none",
+            "spanNulls": true,
+            "insertNulls": false,
+            "showPoints": "always",
+            "pointSize": 5
           },
           "unit": "short",
           "color": {
@@ -68,7 +79,7 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Total Requests (last ${t_interval}${t_unit})",
+      "title": "Total Requests",
       "gridPos": {
         "x": 0,
         "y": 10,
@@ -77,7 +88,7 @@
       },
       "targets": [
         {
-          "expr": "sum(count_over_time({job=\"currency-bot\"} |~ `(GET|POST|PUT|DELETE|PATCH) - /(?:api|telegram)` [${t_interval}${t_unit}]))",
+          "expr": "sum(count_over_time({job=\"currency-bot\"} |~ `(GET|POST|PUT|DELETE|PATCH) - /(?:api|telegram)` [$__range]))",
           "refId": "A",
           "datasource": {
             "type": "loki",
@@ -91,7 +102,9 @@
         "textMode": "auto",
         "reduceOptions": {
           "values": false,
-          "calcs": ["lastNotNull"]
+          "calcs": [
+            "lastNotNull"
+          ]
         }
       },
       "fieldConfig": {
@@ -123,7 +136,7 @@
     {
       "id": 3,
       "type": "piechart",
-      "title": "Requests by Endpoint (last ${t_interval}${t_unit})",
+      "title": "Requests by Endpoint",
       "gridPos": {
         "x": 6,
         "y": 10,
@@ -132,7 +145,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (endpoint) (count_over_time({job=\"currency-bot\"} |~ `(GET|POST|PUT|DELETE|PATCH) - /(?:api|telegram)` | regexp ` - (?P<endpoint>/(?:api|telegram)[^ ]*)` [${t_interval}${t_unit}]))",
+          "expr": "sum by (endpoint) (count_over_time({job=\"currency-bot\"} |~ `(GET|POST|PUT|DELETE|PATCH) - /(?:api|telegram)` | regexp ` - (?P<endpoint>/(?:api|telegram)[^ ]*)` [$__range]))",
           "refId": "A",
           "datasource": {
             "type": "loki",
@@ -145,7 +158,10 @@
         "legend": {
           "displayMode": "table",
           "placement": "right",
-          "values": ["value", "percent"]
+          "values": [
+            "value",
+            "percent"
+          ]
         },
         "pieType": "donut",
         "tooltip": {
@@ -161,7 +177,7 @@
     {
       "id": 4,
       "type": "piechart",
-      "title": "Requests by Status Code (last ${t_interval}${t_unit})",
+      "title": "Requests by Status Code",
       "gridPos": {
         "x": 15,
         "y": 10,
@@ -170,7 +186,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (status) (count_over_time({job=\"currency-bot\"} |~ `(GET|POST|PUT|DELETE|PATCH) - /(?:api|telegram)` | regexp `Application - (?P<status>\\d{3})` [${t_interval}${t_unit}]))",
+          "expr": "sum by (status) (count_over_time({job=\"currency-bot\"} |~ `(GET|POST|PUT|DELETE|PATCH) - /(?:api|telegram)` | regexp `Application - (?P<status>\\d{3})` [$__range]))",
           "refId": "A",
           "datasource": {
             "type": "loki",
@@ -183,7 +199,10 @@
         "legend": {
           "displayMode": "table",
           "placement": "right",
-          "values": ["value", "percent"]
+          "values": [
+            "value",
+            "percent"
+          ]
         },
         "pieType": "pie",
         "tooltip": {
@@ -255,7 +274,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (method) (count_over_time({job=\"currency-bot\"} |~ `(GET|POST|PUT|DELETE|PATCH) - /(?:api|telegram)` | regexp `(?P<method>GET|POST|PUT|DELETE|PATCH)` [${t_interval}${t_unit}]))",
+          "expr": "sum by (method) (count_over_time({job=\"currency-bot\"} |~ `(GET|POST|PUT|DELETE|PATCH) - /(?:api|telegram)` | regexp `(?P<method>GET|POST|PUT|DELETE|PATCH)` [$__interval]))",
           "refId": "A",
           "datasource": {
             "type": "loki",
@@ -276,8 +295,16 @@
       "fieldConfig": {
         "defaults": {
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "barAlignment": 0,
             "lineWidth": 2,
-            "fillOpacity": 10
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": true,
+            "insertNulls": false,
+            "showPoints": "always",
+            "pointSize": 5
           },
           "unit": "short"
         }
@@ -295,7 +322,7 @@
       },
       "targets": [
         {
-          "expr": "sum(count_over_time({job=\"currency-bot\"} |~ `[45]\\d{2}` |~ `(GET|POST|PUT|DELETE|PATCH) - /(?:api|telegram)` [${t_interval}${t_unit}]))",
+          "expr": "sum(count_over_time({job=\"currency-bot\"} |~ `[45]\\d{2}` |~ `(GET|POST|PUT|DELETE|PATCH) - /(?:api|telegram)` [$__interval]))",
           "refId": "A",
           "datasource": {
             "type": "loki",
@@ -313,8 +340,16 @@
       "fieldConfig": {
         "defaults": {
           "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "barAlignment": 0,
             "lineWidth": 2,
-            "fillOpacity": 10
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": true,
+            "insertNulls": false,
+            "showPoints": "always",
+            "pointSize": 5
           },
           "unit": "short",
           "color": {
@@ -325,51 +360,23 @@
       }
     }
   ],
-  "refresh": "5m",
+  "refresh": "10m",
   "schemaVersion": 38,
-  "tags": ["requests", "api", "currency-bot"],
+  "tags": [
+    "requests",
+    "api",
+    "currency-bot"
+  ],
   "templating": {
-    "list": [
-      {
-        "name": "t_interval",
-        "type": "textbox",
-        "label": "Time Interval",
-        "query": "1",
-        "current": {
-          "text": "1",
-          "value": "1"
-        },
-        "hide": 0
-      },
-      {
-        "name": "t_unit",
-        "type": "custom",
-        "label": "Time Unit",
-        "query": "s,m,h,d,w",
-        "current": {
-          "text": "hour",
-          "value": "h"
-        },
-        "options": [
-          { "text": "second", "value": "s" },
-          { "text": "minute", "value": "m" },
-          { "text": "hour", "value": "h", "selected": true },
-          { "text": "day", "value": "d" },
-          { "text": "week", "value": "w" }
-        ],
-        "multi": false,
-        "includeAll": false,
-        "hide": 0
-      }
-    ]
+    "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-6h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
   "title": "Currency Bot - API Requests",
   "uid": "currency-bot-requests",
-  "version": 3
+  "version": 4
 }
