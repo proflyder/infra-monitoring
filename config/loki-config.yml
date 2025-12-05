@@ -9,6 +9,9 @@ server:
   http_listen_port: 3100
   grpc_listen_port: 9096
   log_level: info
+  http_server_read_timeout: 5m
+  http_server_write_timeout: 5m
+  http_server_idle_timeout: 5m
 
 # ───────────────────────────────────────────────────────────────────
 # Ingester - компонент для приёма и буферизации логов
@@ -83,7 +86,7 @@ limits_config:
   max_query_length: 337h  # Чуть больше retention_period
   max_query_lookback: 336h
   max_streams_per_user: 10000
-  max_entries_limit_per_query: 10000  # Увеличено с 5000
+  max_entries_limit_per_query: 50000  # Увеличено для запросов на 1d
 
   # Лимиты на входящие данные
   ingestion_rate_mb: 10  # 10 MB/s на stream
@@ -95,11 +98,12 @@ limits_config:
   max_line_size: 256KB
 
   # Лимиты на query performance
-  max_query_parallelism: 16  # Параллелизм внутри запроса (уменьшено для стабильности)
+  max_query_parallelism: 32  # Параллелизм внутри запроса (для больших интервалов)
   max_query_series: 10000  # Максимум серий в одном запросе
+  query_timeout: 5m  # Таймаут на запрос (для длинных интервалов вроде 1d)
 
   # Разбиение длинных запросов на части
-  split_queries_by_interval: 15m
+  split_queries_by_interval: 1h  # Увеличено с 15m для больших интервалов
 
 # ───────────────────────────────────────────────────────────────────
 # Chunk Store Config - настройки кеша
