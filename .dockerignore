@@ -1,0 +1,46 @@
+# Git
+.git/
+.gitignore
+.github/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+volumes/
+data/
+backups/
+
+# Temporary files
+*.log
+*.tmp
+tmp/
+temp/
+*.backup
+
+# Jsonnet dependencies (will be installed in container)
+vendor/
+jsonnetfile.lock.json
+
+# Documentation (not needed in config image)
+docs/
+*.md
+!README.md
+
+# Scripts (not needed in config image)
+scripts/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Generated dashboards in repo (we build them fresh in Docker)
+config/grafana/dashboards/*.json

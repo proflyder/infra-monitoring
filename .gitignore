@@ -38,3 +38,13 @@ Thumbs.db
 *.tmp
 tmp/
 temp/
+
+# ═══════════════════════════════════════════════════════════════════
+# Jsonnet dependencies and generated files
+# ═══════════════════════════════════════════════════════════════════
+vendor/
+jsonnetfile.lock.json
+
+# Generated dashboards (собираются в CI/CD)
+config/grafana/dashboards/*.json
+config/grafana/dashboards/**/*.json

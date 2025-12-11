@@ -63,10 +63,18 @@ git push origin master
 infra-monitoring/
 ├── docker-compose.yml              # Сервисы
 ├── Dockerfile                      # Config image для GHCR
+├── Makefile                        # Build targets для дашбордов
+├── dashboards-jsonnet/             # 🆕 Исходники дашбордов (Jsonnet + Grafonnet)
+│   ├── lib/common.libsonnet       # Переиспользуемые компоненты
+│   ├── infra/system.jsonnet       # VM System Metrics
+│   └── proflyder-service/         # Currency Bot дашборды
+│       ├── api.jsonnet
+│       ├── logs.jsonnet
+│       └── currency.jsonnet
 ├── config/
 │   ├── grafana/
 │   │   ├── grafana.ini            # Конфиг Grafana (Proflyder, Asia/Almaty)
-│   │   ├── dashboards/            # Готовые дашборды
+│   │   ├── dashboards/            # Сгенерированные JSON дашборды
 │   │   └── provisioning/          # Datasources, dashboards
 │   ├── loki-config.yml            # Конфиг Loki
 │   ├── prometheus.yml             # Конфиг Prometheus
@@ -88,6 +96,47 @@ infra-monitoring/
 ├── docs/                          # Документация
 └── .env.example                   # Env variables
 ```
+
+---
+
+## Разработка дашбордов
+
+Дашборды Grafana создаются программно с использованием **Jsonnet** + **Grafonnet**.
+
+### Почему Jsonnet?
+- Компактный читаемый код вместо многостраничных JSON
+- Переиспользование компонентов
+- Параметризация и DRY principle
+- Git-friendly diff'ы
+
+### Быстрый старт
+
+```bash
+# Вариант 1: С Docker (не требует установки)
+make dashboards-docker
+
+# Вариант 2: Локально (требует jsonnet + jsonnet-bundler)
+brew install jsonnet jsonnet-bundler  # macOS
+make install-deps                     # Установка grafonnet
+make dashboards                       # Сборка
+```
+
+### Пример дашборда
+
+```jsonnet
+local g = import 'github.com/grafana/grafonnet/gen/grafonnet-latest/main.libsonnet';
+local common = import '../lib/common.libsonnet';
+
+common.defaultDashboard('My Dashboard', tags=['my-tag'], uid='my-dash')
++ g.dashboard.withPanels([
+  common.defaultTimeseries('My Panel', common.datasources.prometheus)
+  + g.panel.timeSeries.queryOptions.withTargets([
+    g.query.prometheus.new('prometheus', 'my_metric'),
+  ]),
+])
+```
+
+**Подробнее:** [dashboards-jsonnet/README.md](dashboards-jsonnet/README.md)
 
 ---
 
