@@ -1,41 +1,77 @@
 # 🚀 Quick Start Guide
 
-## Первый запуск на production (GCP VM)
+## Первый запуск на production (VPS от ps.kz)
 
-### 1. Настройка GitHub Secrets
+### 1. Настройка VPS сервера
+
+```bash
+# Подключитесь к VPS
+ssh root@your_server_ip
+
+# Скопируйте скрипт настройки с локальной машины
+# (на локальной машине)
+scp scripts/setup-vps.sh root@your_server_ip:/tmp/
+
+# Запустите скрипт настройки на VPS
+# (на VPS)
+bash /tmp/setup-vps.sh
+
+# Следуйте инструкциям скрипта
+```
+
+### 2. Настройка SSH ключей
+
+```bash
+# На локальной машине сгенерируйте SSH ключ для деплоя
+ssh-keygen -t rsa -b 4096 -C "github-actions-deploy" -f ~/.ssh/github_deploy_key
+# НЕ устанавливайте passphrase (просто Enter)
+
+# Скопируйте публичный ключ
+cat ~/.ssh/github_deploy_key.pub
+
+# На VPS добавьте публичный ключ для пользователя deploy
+ssh deploy@your_server_ip
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+echo "ваш_публичный_ключ" >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+exit
+
+# Проверьте SSH подключение
+ssh -i ~/.ssh/github_deploy_key deploy@your_server_ip
+```
+
+### 3. Настройка GitHub Secrets
 
 Добавьте в GitHub → Settings → Secrets → Actions:
 
 ```
-GCC_TOKEN=<ваш Google Cloud credentials JSON>
-GCC_VM_NAME=<имя VM>
-GCC_VM_ZONE=<зона VM, например us-central1-a>
+SSH_PRIVATE_KEY=<содержимое ~/.ssh/github_deploy_key>
+SSH_HOST=<IP адрес вашего VPS>
+SSH_USER=deploy
 GRAFANA_ADMIN_PASSWORD=<надёжный пароль>
 ```
 
-### 2. Деплой
+**Подробная инструкция:** [docs/GITHUB_SECRETS_SETUP.md](docs/GITHUB_SECRETS_SETUP.md)
+
+### 4. Деплой через GitHub Actions
 
 ```bash
-# Создайте репозиторий на GitHub
-gh repo create infra-monitoring --public
-
-# Инициализируйте Git
+# Создайте репозиторий на GitHub (если еще не создан)
 cd infra-monitoring
-git init
 git add .
-git commit -m "Initial commit: monitoring stack"
-git branch -M main
-git remote add origin https://github.com/your-username/infra-monitoring.git
-git push -u origin main
+git commit -m "Configure monitoring for VPS"
+git push origin master
 
-# GitHub Actions автоматически задеплоит на GCP VM
+# GitHub Actions автоматически задеплоит на VPS
+# Смотрите прогресс: GitHub → Actions → Deploy Monitoring Stack
 ```
 
-### 3. Настройка Nginx на VM
+### 5. Настройка Nginx на VPS
 
 ```bash
-# SSH на VM
-gcloud compute ssh your-vm-name --zone=your-zone
+# SSH на VPS
+ssh deploy@your_server_ip
 
 # Откройте конфиг nginx
 sudo nano /etc/nginx/sites-available/proflyder.dev
@@ -49,7 +85,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-### 4. Откройте Grafana
+### 6. Откройте Grafana
 
 ```
 URL: https://proflyder.dev/grafana/

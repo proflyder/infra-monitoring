@@ -1,0 +1,24 @@
+apiVersion: 1
+
+providers:
+  - name: 'Infra'
+    orgId: 1
+    folder: 'Infra monitoring'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/infra
+      foldersFromFilesStructure: false
+
+  - name: 'Proflyder service'
+    orgId: 1
+    folder: 'Proflyder service monitoring'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/proflyder-service
+      foldersFromFilesStructure: false

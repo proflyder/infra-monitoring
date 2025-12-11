@@ -6,9 +6,11 @@
 
 Единый мониторинг стек на базе:
 - **Loki** - централизованное хранилище логов
+- **Prometheus** - сбор и хранение метрик
+- **Node Exporter** - системные метрики VM (CPU, Memory, Disk, Network)
 - **Grafana** - визуализация логов и метрик
 
-Позволяет собирать логи со всех проектов в одном месте и просматривать их через веб-интерфейс.
+Позволяет собирать логи и метрики со всех проектов в одном месте и просматривать их через веб-интерфейс.
 
 ## 🌐 Доступ
 
@@ -50,15 +52,31 @@ docker compose logs -f
 open http://localhost:3000
 ```
 
-### 3. Деплой на production
+### 3. Деплой на VPS
+
+**Первоначальная настройка VPS:**
 
 ```bash
-# Коммит и push в main/master ветку
+# 1. Подключись к VPS
+ssh root@your_server_ip
+
+# 2. Скопируй и запусти скрипт настройки
+# (на локальной машине)
+scp scripts/setup-vps.sh root@your_server_ip:/tmp/
+ssh root@your_server_ip "bash /tmp/setup-vps.sh"
+
+# 3. Настрой GitHub Secrets (см. docs/GITHUB_SECRETS_SETUP.md)
+```
+
+**Автоматический деплой:**
+
+```bash
+# Коммит и push в master ветку
 git add .
 git commit -m "Update monitoring config"
-git push origin main
+git push origin master
 
-# GitHub Actions автоматически задеплоит на GCP VM
+# GitHub Actions автоматически задеплоит на VPS
 ```
 
 ---
@@ -67,15 +85,22 @@ git push origin main
 
 ```
 infra-monitoring/
-├── docker compose.yml          # Loki + Grafana
+├── docker-compose.yml                    # Loki + Grafana + Prometheus + Node Exporter
 ├── config/
-│   ├── loki-config.yml         # Конфигурация Loki
-│   ├── grafana-datasources.yml # Автоподключение Loki
-│   └── nginx-grafana.conf      # Nginx конфиг для proflyder.dev/grafana
+│   ├── loki-config.yml                   # Конфигурация Loki
+│   ├── prometheus.yml                    # Конфигурация Prometheus
+│   ├── nginx-grafana.conf                # Nginx конфиг для proflyder.dev/grafana
+│   └── grafana/
+│       ├── dashboards/                   # Готовые дашборды
+│       └── provisioning/                 # Автоконфигурация datasources
 ├── .github/workflows/
-│   └── deploy.yml              # CI/CD для деплоя
-├── .env.example                # Пример переменных окружения
-└── README.md                   # Эта документация
+│   └── deploy.yml                        # CI/CD для деплоя на VPS
+├── scripts/
+│   └── setup-vps.sh                      # Скрипт настройки VPS сервера
+├── docs/
+│   └── GITHUB_SECRETS_SETUP.md           # Инструкция по настройке GitHub Secrets
+├── .env.example                          # Пример переменных окружения
+└── README.md                             # Эта документация
 ```
 
 ---
@@ -97,12 +122,16 @@ openssl rand -base64 32
 
 Для работы CI/CD нужны следующие secrets:
 
-| Secret | Описание | Пример |
-|--------|----------|--------|
-| `GCC_TOKEN` | Google Cloud credentials JSON | `{"type": "service_account", ...}` |
-| `GCC_VM_NAME` | Имя VM в GCP | `proflyder-vm` |
-| `GCC_VM_ZONE` | Зона VM | `us-central1-a` |
-| `GRAFANA_ADMIN_PASSWORD` | Пароль для Grafana | `strong_password_here` |
+| Secret | Обязательность | Описание | Пример |
+|--------|----------------|----------|--------|
+| `SSH_PRIVATE_KEY` | **Обязательно** | Приватный SSH ключ для доступа к VPS | Содержимое `~/.ssh/id_rsa` |
+| `SSH_HOST` | **Обязательно** | IP адрес или домен VPS сервера | `123.45.67.89` |
+| `SSH_USER` | **Обязательно** | Пользователь для SSH подключения | `deploy` |
+| `SSH_PORT` | Опционально | Порт SSH (по умолчанию: 22) | `22` |
+| `GRAFANA_ADMIN_USER` | Опционально | Username для Grafana | `admin` |
+| `GRAFANA_ADMIN_PASSWORD` | **Обязательно** | Пароль для Grafana | `strong_password_here` |
+
+**Подробная инструкция:** См. [docs/GITHUB_SECRETS_SETUP.md](docs/GITHUB_SECRETS_SETUP.md)
 
 ### Настройка Nginx
 
@@ -432,32 +461,45 @@ docker system df -v | grep monitoring
 ```mermaid
 graph LR
     A[git push] --> B[GitHub Actions]
-    B --> C[Create tar with configs]
-    C --> D[Upload to GCP VM]
-    D --> E[Extract to /opt/monitoring]
-    E --> F[docker compose up -d]
-    F --> G[Health check]
-    G --> H[✅ Deployed]
+    B --> C[Setup SSH connection]
+    C --> D[Create tar with configs]
+    D --> E[Upload to VPS via SCP]
+    E --> F[Extract to /opt/monitoring]
+    F --> G[docker compose up -d]
+    G --> H[Health check]
+    H --> I[✅ Deployed]
 ```
 
 ### Триггеры
 
-- Push в `main` или `master` ветку
+- Push в `master` ветку
 - Ручной запуск через GitHub Actions UI
 
 ### Логи CI/CD
 
 Смотреть в GitHub → Actions → Latest workflow run
 
+### Требования для CI/CD
+
+- Настроенный VPS сервер (см. `scripts/setup-vps.sh`)
+- Настроенные GitHub Secrets (см. `docs/GITHUB_SECRETS_SETUP.md`)
+- SSH доступ от GitHub Actions к VPS
+
 ---
 
 ## 📈 Roadmap
 
+### Реализовано
+
+- [x] **Prometheus** - сбор метрик (CPU, RAM, запросы)
+- [x] **Node Exporter** - системные метрики VM
+- [x] **Миграция на VPS** - переход с Google Cloud на ps.kz
+
 ### Планируется добавить
 
-- [ ] **Prometheus** - сбор метрик (CPU, RAM, запросы)
 - [ ] **Alertmanager** - алерты в Telegram/Email при ошибках
 - [ ] **Готовые дашборды** для типичных метрик
+- [ ] **cAdvisor** - метрики Docker контейнеров
 - [ ] **Tempo** - distributed tracing
 - [ ] **Автоматические дашборды** для новых проектов
 
@@ -484,11 +526,20 @@ graph LR
 
 ## 📝 Changelog
 
+### v2.0.0 (2025-12-11)
+- ✅ Миграция с Google Cloud на VPS (ps.kz)
+- ✅ Обновлен CI/CD для работы через SSH
+- ✅ Добавлен Prometheus для сбора метрик
+- ✅ Добавлен Node Exporter для системных метрик
+- ✅ Создан скрипт автоматической настройки VPS
+- ✅ Добавлена документация по настройке GitHub Secrets
+- ✅ Реорганизованы конфигурации Grafana
+
 ### v1.0.0 (2025-12-04)
 - ✅ Начальная версия
 - ✅ Loki для хранения логов
 - ✅ Grafana для визуализации
-- ✅ CI/CD через GitHub Actions
+- ✅ CI/CD через GitHub Actions для GCP
 - ✅ Работа через nginx на /grafana/
 - ✅ Retention 14 дней
 

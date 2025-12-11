@@ -108,14 +108,12 @@ services:
 
     volumes:
       - grafana-data:/var/lib/grafana
-      # Автоматическое подключение Loki как datasource
-      - ./config/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
-      # Автоматическое создание дашбордов
-      - ./config/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
-      - ./config/grafana-dashboard-logs.json:/etc/grafana/provisioning/dashboards/logs.json
-      - ./config/grafana-dashboard-system.json:/etc/grafana/provisioning/dashboards/system.json
-      - ./config/grafana-dashboard-currency.json:/etc/grafana/provisioning/dashboards/currency.json
-      - ./config/grafana-dashboard-api.json:/etc/grafana/provisioning/dashboards/api.json
+      # Datasource provisioning
+      - ./config/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      # Dashboard provisioning
+      - ./config/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      # Dashboard files
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards
     networks:
       - monitoring
     restart: unless-stopped
