@@ -1,548 +1,248 @@
-# 📊 Proflyder Infrastructure Monitoring
+# Proflyder Infrastructure Monitoring
 
-Централизованная система мониторинга и сбора логов для всех проектов Proflyder.
+Централизованный мониторинг и логирование для всех проектов Proflyder.
 
-## 🎯 Что это?
+## Stack
 
-Единый мониторинг стек на базе:
-- **Loki** - централизованное хранилище логов
-- **Prometheus** - сбор и хранение метрик
-- **Node Exporter** - системные метрики VM (CPU, Memory, Disk, Network)
-- **Grafana** - визуализация логов и метрик
+- **Loki** - хранилище логов
+- **Prometheus** - метрики
+- **Node Exporter** - системные метрики VPS
+- **Grafana** - визуализация
 
-Позволяет собирать логи и метрики со всех проектов в одном месте и просматривать их через веб-интерфейс.
-
-## 🌐 Доступ
-
-- **URL:** https://proflyder.dev/grafana/
-- **Логин:** admin
-- **Пароль:** установлен через `GRAFANA_ADMIN_PASSWORD`
+**URL:** https://proflyder.dev/grafana/
 
 ---
 
-## 🚀 Быстрый старт
+## Quick Start
 
-### 1. Первоначальная настройка
-
-```bash
-# Клонировать репозиторий
-git clone https://github.com/your-username/infra-monitoring.git
-cd infra-monitoring
-
-# Скопировать .env.example
-cp .env.example .env
-
-# Установить пароль для Grafana в .env
-nano .env
-```
-
-### 2. Локальный запуск (для тестирования)
+Смотри [QUICK_START.md](QUICK_START.md)
 
 ```bash
-# Запустить стек
-docker compose up -d
+# 1. Setup VPS
+scp scripts/setup-vps.sh root@vps:/tmp/
+ssh root@vps "bash /tmp/setup-vps.sh"
 
-# Проверить статус
-docker compose ps
+# 2. Setup GitHub Secrets (см. docs/GITHUB_SECRETS_SETUP.md)
 
-# Просмотреть логи
-docker compose logs -f
-
-# Открыть Grafana
-open http://localhost:3000
-```
-
-### 3. Деплой на VPS
-
-**Первоначальная настройка VPS:**
-
-```bash
-# 1. Подключись к VPS
-ssh root@your_server_ip
-
-# 2. Скопируй и запусти скрипт настройки
-# (на локальной машине)
-scp scripts/setup-vps.sh root@your_server_ip:/tmp/
-ssh root@your_server_ip "bash /tmp/setup-vps.sh"
-
-# 3. Настрой GitHub Secrets (см. docs/GITHUB_SECRETS_SETUP.md)
-```
-
-**Автоматический деплой:**
-
-```bash
-# Коммит и push в master ветку
-git add .
-git commit -m "Update monitoring config"
+# 3. Deploy
 git push origin master
-
-# GitHub Actions автоматически задеплоит на VPS
 ```
 
 ---
 
-## 📁 Структура проекта
+## Features
+
+### CI/CD через GHCR
+- ✅ Версионирование конфигов (Docker образы)
+- ✅ Semantic Versioning (git tags → образы с версиями)
+- ✅ Автоматический rollback при ошибках
+- ✅ Smoke tests после rollback (гарантия восстановления)
+- ✅ Concurrency control (предотвращение параллельных деплоев)
+- ✅ Детальное логирование версий для отладки
+- ✅ Отслеживание версий на VPS (`DEPLOYED_VERSION`)
+- ✅ Grafana annotations (маркеры деплоев на графиках)
+- ✅ Автоматическая очистка образов (после деплоя + еженедельно)
+
+### Безопасность
+- ✅ Порты только локально (127.0.0.1)
+- ✅ Доступ через nginx + SSL
+- ✅ Авторизация обязательна
+- ✅ Регистрация отключена
+
+### Мониторинг
+- ✅ Retention: 14 дней (Loki)
+- ✅ Retention: 30 дней (Prometheus)
+- ✅ Системные метрики VPS (CPU, RAM, Disk, Network)
+- ✅ Health checks
+
+---
+
+## Структура
 
 ```
 infra-monitoring/
-├── docker-compose.yml                    # Loki + Grafana + Prometheus + Node Exporter
+├── docker-compose.yml              # Сервисы
+├── Dockerfile                      # Config image для GHCR
 ├── config/
-│   ├── loki-config.yml                   # Конфигурация Loki
-│   ├── prometheus.yml                    # Конфигурация Prometheus
-│   ├── nginx-grafana.conf                # Nginx конфиг для proflyder.dev/grafana
-│   └── grafana/
-│       ├── dashboards/                   # Готовые дашборды
-│       └── provisioning/                 # Автоконфигурация datasources
-├── .github/workflows/
-│   └── deploy.yml                        # CI/CD для деплоя на VPS
+│   ├── grafana/
+│   │   ├── grafana.ini            # Конфиг Grafana (Proflyder, Asia/Almaty)
+│   │   ├── dashboards/            # Готовые дашборды
+│   │   └── provisioning/          # Datasources, dashboards
+│   ├── loki-config.yml            # Конфиг Loki
+│   ├── prometheus.yml             # Конфиг Prometheus
+│   └── nginx-default-full.conf    # Nginx конфиг
+├── .github/
+│   ├── workflows/
+│   │   ├── deploy.yml             # CI/CD: build → GHCR → deploy → smoke tests → rollback
+│   │   └── cleanup.yml            # Очистка старых образов (weekly)
+│   ├── actions/
+│   │   ├── smoke-tests/           # Композитный экшен для smoke tests
+│   │   └── grafana-annotation/    # Композитный экшен для Grafana аннотаций
+│   └── scripts/
+│       ├── backup-version.sh      # Backup текущей версии
+│       ├── deploy-stack.sh        # Деплой мониторинга
+│       ├── rollback-stack.sh      # Откат к предыдущей версии
+│       └── cleanup-images.sh      # Очистка старых образов
 ├── scripts/
-│   └── setup-vps.sh                      # Скрипт настройки VPS сервера
-├── docs/
-│   └── GITHUB_SECRETS_SETUP.md           # Инструкция по настройке GitHub Secrets
-├── .env.example                          # Пример переменных окружения
-└── README.md                             # Эта документация
+│   └── setup-vps.sh               # VPS setup скрипт
+├── docs/                          # Документация
+└── .env.example                   # Env variables
 ```
 
 ---
 
-## 🔧 Конфигурация
+## Использование
 
-### Переменные окружения (.env)
+### Grafana
 
-```env
-GRAFANA_ADMIN_PASSWORD=your_strong_password
-```
-
-**⚠️ Важно:** Используйте надёжный пароль! Генерация:
-```bash
-openssl rand -base64 32
-```
-
-### GitHub Secrets
-
-Для работы CI/CD нужны следующие secrets:
-
-| Secret | Обязательность | Описание | Пример |
-|--------|----------------|----------|--------|
-| `SSH_PRIVATE_KEY` | **Обязательно** | Приватный SSH ключ для доступа к VPS | Содержимое `~/.ssh/id_rsa` |
-| `SSH_HOST` | **Обязательно** | IP адрес или домен VPS сервера | `123.45.67.89` |
-| `SSH_USER` | **Обязательно** | Пользователь для SSH подключения | `deploy` |
-| `SSH_PORT` | Опционально | Порт SSH (по умолчанию: 22) | `22` |
-| `GRAFANA_ADMIN_USER` | Опционально | Username для Grafana | `admin` |
-| `GRAFANA_ADMIN_PASSWORD` | **Обязательно** | Пароль для Grafana | `strong_password_here` |
-
-**Подробная инструкция:** См. [docs/GITHUB_SECRETS_SETUP.md](docs/GITHUB_SECRETS_SETUP.md)
-
-### Настройка Nginx
-
-После деплоя нужно один раз добавить конфиг в nginx:
-
-```bash
-# На VM выполнить:
-sudo nano /etc/nginx/sites-available/proflyder.dev
-
-# Добавить блок location из config/nginx-grafana.conf
-# См. подробности в файле config/nginx-grafana.conf
-
-# Проверить конфиг
-sudo nginx -t
-
-# Перезагрузить nginx
-sudo systemctl reload nginx
-```
-
----
-
-## 📊 Использование Grafana
-
-### 1. Вход в систему
-
-1. Откройте https://proflyder.dev/grafana/
-2. Введите логин: `admin`
-3. Введите пароль (из `GRAFANA_ADMIN_PASSWORD`)
-
-### 2. Просмотр логов
-
-1. Нажмите на иконку **компаса** (Explore) в левом меню
-2. Выберите **Loki** в качестве datasource (уже выбран по умолчанию)
-3. Используйте LogQL запросы
-
-### 3. Примеры LogQL запросов
-
+**LogQL примеры:**
 ```logql
-# Все логи проекта currency-bot
-{job="currency-bot"}
-
-# Только ошибки
-{job="currency-bot"} |= "ERROR"
-
-# Логи Quartz scheduler
-{job="currency-bot"} |= "Quartz"
-
-# Парсинг JSON логов
-{job="currency-bot"} | json
-
-# Фильтр по уровню после парсинга JSON
-{job="currency-bot"} | json | level="ERROR"
-
-# Поиск по regex в сообщении
-{job="currency-bot"} | json | message=~".*timeout.*"
-
-# Логи за последний час
-{job="currency-bot"}[1h]
-
-# Логи другого проекта
-{job="another-project"}
+{job="currency-bot"}                          # Все логи проекта
+{job="currency-bot"} |= "ERROR"               # Только ошибки
+{job="currency-bot"} | json | level="ERROR"   # После парсинга JSON
+{job="currency-bot"} |= "timeout"             # Поиск по слову
 ```
 
-### 4. Создание дашбордов
+### Docker Compose
 
-1. Нажмите **+ Create** → **Dashboard**
-2. Добавьте панель → выберите **Loki** datasource
-3. Напишите LogQL запрос
-4. Настройте визуализацию (Table, Logs, Graph)
-5. Сохраните дашборд
+```bash
+# На VPS
+cd /opt/monitoring
+
+# Статус
+sudo docker compose ps
+
+# Логи
+sudo docker compose logs -f grafana
+
+# Перезапуск
+sudo docker compose restart
+
+# Версия
+cat DEPLOYED_VERSION
+```
+
+### Production Release
+
+```bash
+git tag -a v1.0.0 -m "Production release 1.0.0"
+git push origin v1.0.0
+# Создаст: v1.0.0, 1.0, latest
+```
+
+### Rollback
+
+Автоматически при ошибках деплоя.
+
+Ручной:
+```bash
+cat /opt/monitoring/DEPLOYED_VERSION.backup
+PREV=$(grep "^Image:" /opt/monitoring/DEPLOYED_VERSION.backup | cut -d' ' -f2)
+sudo docker pull "$PREV"
+sudo docker run --rm -v /opt/monitoring:/output "$PREV"
+cd /opt/monitoring && sudo docker compose restart
+```
 
 ---
 
-## 🔗 Подключение проектов
+## Подключение проектов
 
-Каждый проект должен запускать свой **Promtail** контейнер для отправки логов в Loki.
+Каждый проект запускает свой **Promtail** для отправки логов в Loki.
 
-### Пример для проекта (currency-bot)
-
-**1. Добавить Promtail в docker compose.yml:**
-
+**docker-compose.yml:**
 ```yaml
-services:
-  # Ваш основной сервис
-  currency-bot:
-    # ...
-
-  # Promtail для отправки логов
-  promtail:
-    image: grafana/promtail:2.9.3
-    container_name: promtail-currency-bot
-    volumes:
-      - ./config/promtail-config.yml:/etc/promtail/config.yml
-      - /var/log/currency-bot:/var/log/currency-bot:ro
-    command: -config.file=/etc/promtail/config.yml
-    restart: unless-stopped
+promtail:
+  image: grafana/promtail:2.9.3
+  volumes:
+    - ./config/promtail-config.yml:/etc/promtail/config.yml
+    - /var/log/app:/var/log/app:ro
+  command: -config.file=/etc/promtail/config.yml
 ```
 
-**2. Создать config/promtail-config.yml:**
-
+**promtail-config.yml:**
 ```yaml
-server:
-  http_listen_port: 9080
-  grpc_listen_port: 0
-
-positions:
-  filename: /tmp/positions.yaml
-
 clients:
   - url: http://host.docker.internal:3100/loki/api/v1/push
 
 scrape_configs:
-  - job_name: currency-bot
+  - job_name: my-app
     static_configs:
-      - targets:
-          - localhost
+      - targets: [localhost]
         labels:
-          job: currency-bot
-          __path__: /var/log/currency-bot/*.log
+          job: my-app
+          __path__: /var/log/app/*.log
 ```
 
-**3. Запустить:**
-
-```bash
-docker compose up -d
-```
-
-**4. Проверить в Grafana:**
-
-```logql
-{job="currency-bot"}
-```
+Затем в Grafana: `{job="my-app"}`
 
 ---
 
-## 🛠️ Управление
-
-### Docker Compose команды
+## Backup
 
 ```bash
-# Запустить
-docker compose up -d
-
-# Остановить
-docker compose down
-
-# Перезапустить
-docker compose restart
-
-# Просмотр логов
-docker compose logs -f
-
-# Просмотр логов конкретного сервиса
-docker compose logs -f grafana
-docker compose logs -f loki
-
-# Статус контейнеров
-docker compose ps
-
-# Обновить образы
-docker compose pull
-docker compose up -d
-```
-
-### Проверка здоровья
-
-```bash
-# Проверить Loki
-curl http://localhost:3100/ready
-
-# Проверить Grafana
-curl http://localhost:3000/api/health
-
-# Посмотреть метрики Loki
-curl http://localhost:3100/metrics
-```
-
-### Backup данных
-
-```bash
-# Backup Loki data
-docker run --rm \
-  -v infra-monitoring_loki-data:/source \
-  -v $(pwd)/backups:/backup \
-  alpine tar czf /backup/loki-backup-$(date +%Y%m%d).tar.gz -C /source .
-
-# Backup Grafana data (дашборды, настройки)
+# Grafana
 docker run --rm \
   -v infra-monitoring_grafana-data:/source \
   -v $(pwd)/backups:/backup \
-  alpine tar czf /backup/grafana-backup-$(date +%Y%m%d).tar.gz -C /source .
-```
+  alpine tar czf /backup/grafana-$(date +%Y%m%d).tar.gz -C /source .
 
-### Восстановление из backup
-
-```bash
-# Restore Loki
-docker run --rm \
-  -v infra-monitoring_loki-data:/target \
-  -v $(pwd)/backups:/backup \
-  alpine sh -c "rm -rf /target/* && tar xzf /backup/loki-backup-20231201.tar.gz -C /target"
-
-# Restore Grafana
+# Restore
+docker volume rm infra-monitoring_grafana-data
+docker volume create infra-monitoring_grafana-data
 docker run --rm \
   -v infra-monitoring_grafana-data:/target \
   -v $(pwd)/backups:/backup \
-  alpine sh -c "rm -rf /target/* && tar xzf /backup/grafana-backup-20231201.tar.gz -C /target"
+  alpine sh -c "cd /target && tar xzf /backup/grafana-YYYYMMDD.tar.gz"
 ```
+
+То же для `loki-data` и `prometheus-data`.
 
 ---
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
-### Grafana не открывается (502 Bad Gateway)
-
+### Деплой failed
 ```bash
-# Проверить что контейнер запущен
-docker ps | grep grafana
-
-# Проверить логи
-docker logs grafana
-
-# Проверить порт
-curl http://localhost:3000/api/health
-
-# Перезапустить
-docker compose restart grafana
+# GitHub → Actions → последний run
+# Проверь: Settings → Secrets → Actions
 ```
 
-### Loki не принимает логи
-
+### Grafana 502
 ```bash
-# Проверить статус
+sudo docker compose -f /opt/monitoring/docker-compose.yml ps
+sudo docker compose logs grafana
+sudo nginx -t
+```
+
+### Логи не появляются
+```bash
 curl http://localhost:3100/ready
-
-# Проверить логи
-docker logs loki
-
-# Проверить конфигурацию
-docker exec loki cat /etc/loki/local-config.yaml
+curl 'http://localhost:3100/loki/api/v1/query?query={job="my-app"}'
+docker logs promtail-my-app
 ```
 
-### Логи не отображаются в Grafana
-
-1. **Проверить что Promtail отправляет логи:**
-   ```bash
-   docker logs promtail-currency-bot
-   ```
-
-2. **Проверить что Loki получает логи:**
-   ```bash
-   curl 'http://localhost:3100/loki/api/v1/query?query={job="currency-bot"}'
-   ```
-
-3. **Проверить в Grafana Explore:**
-   - Выбрать Loki datasource
-   - Запросить `{job="currency-bot"}`
-
-### Нет места на диске
-
+### Нет места
 ```bash
-# Проверить размер volumes
 docker system df -v
-
-# Очистить старые образы
-docker image prune -a
-
-# Очистить старые логи (настроено в loki-config.yml - retention 14 дней)
-# Loki автоматически удаляет старые логи
+docker image prune -a --filter "until=720h" --force
+# Или вручную запусти: GitHub → Actions → Cleanup Old Docker Images
 ```
 
 ---
 
-## 📊 Мониторинг производительности
+## Документация
 
-### Потребление ресурсов
-
-```bash
-# Статистика контейнеров
-docker stats grafana loki
-
-# Размер volumes
-docker system df -v | grep monitoring
-```
-
-### Оптимизация
-
-**Loki:**
-- Retention period: 14 дней (настроено в `loki-config.yml`)
-- Автоматическая компактификация каждые 10 минут
-- Лимиты на входящий поток: 10 MB/s
-
-**Grafana:**
-- Кеширование запросов: 100 MB
-- Отключена регистрация новых пользователей
-- Порты доступны только локально
+- [QUICK_START.md](QUICK_START.md) - Быстрый старт
+- [docs/GITHUB_SECRETS_SETUP.md](docs/GITHUB_SECRETS_SETUP.md) - GitHub Secrets
+- [docs/GHCR_DEPLOYMENT.md](docs/GHCR_DEPLOYMENT.md) - Деплой через GHCR
+- [docs/GRAFANA_API_SETUP.md](docs/GRAFANA_API_SETUP.md) - API ключ для annotations
+- [docs/GRAFANA_CONFIGURATION.md](docs/GRAFANA_CONFIGURATION.md) - Конфигурация Grafana
 
 ---
 
-## 🔐 Безопасность
+## Links
 
-### Текущие меры безопасности
-
-✅ **Порты доступны только локально** (127.0.0.1:3000, 127.0.0.1:3100)
-✅ **Доступ только через nginx с SSL** (https://)
-✅ **Авторизация в Grafana обязательна**
-✅ **Отключена регистрация новых пользователей**
-✅ **Пароль хранится в secrets / .env**
-
-### Рекомендации
-
-1. **Используйте надёжный пароль** для Grafana (минимум 16 символов)
-2. **Включите 2FA** в Grafana (Settings → Profile → Two-Factor Auth)
-3. **Регулярно обновляйте** образы Docker:
-   ```bash
-   docker compose pull
-   docker compose up -d
-   ```
-4. **Мониторьте попытки входа** (Grafana → Server Admin → Users → Login attempts)
-
----
-
-## 🚀 CI/CD Pipeline
-
-### Как работает деплой
-
-```mermaid
-graph LR
-    A[git push] --> B[GitHub Actions]
-    B --> C[Setup SSH connection]
-    C --> D[Create tar with configs]
-    D --> E[Upload to VPS via SCP]
-    E --> F[Extract to /opt/monitoring]
-    F --> G[docker compose up -d]
-    G --> H[Health check]
-    H --> I[✅ Deployed]
-```
-
-### Триггеры
-
-- Push в `master` ветку
-- Ручной запуск через GitHub Actions UI
-
-### Логи CI/CD
-
-Смотреть в GitHub → Actions → Latest workflow run
-
-### Требования для CI/CD
-
-- Настроенный VPS сервер (см. `scripts/setup-vps.sh`)
-- Настроенные GitHub Secrets (см. `docs/GITHUB_SECRETS_SETUP.md`)
-- SSH доступ от GitHub Actions к VPS
-
----
-
-## 📈 Roadmap
-
-### Реализовано
-
-- [x] **Prometheus** - сбор метрик (CPU, RAM, запросы)
-- [x] **Node Exporter** - системные метрики VM
-- [x] **Миграция на VPS** - переход с Google Cloud на ps.kz
-
-### Планируется добавить
-
-- [ ] **Alertmanager** - алерты в Telegram/Email при ошибках
-- [ ] **Готовые дашборды** для типичных метрик
-- [ ] **cAdvisor** - метрики Docker контейнеров
-- [ ] **Tempo** - distributed tracing
-- [ ] **Автоматические дашборды** для новых проектов
-
----
-
-## 📚 Полезные ссылки
-
-- [Grafana Documentation](https://grafana.com/docs/grafana/latest/)
-- [Loki Documentation](https://grafana.com/docs/loki/latest/)
-- [LogQL Query Language](https://grafana.com/docs/loki/latest/logql/)
-- [Promtail Configuration](https://grafana.com/docs/loki/latest/clients/promtail/configuration/)
-
----
-
-## 🤝 Поддержка
-
-Если возникли вопросы или проблемы:
-
-1. Проверьте [Troubleshooting](#troubleshooting)
-2. Посмотрите логи: `docker compose logs -f`
-3. Создайте Issue в репозитории
-
----
-
-## 📝 Changelog
-
-### v2.0.0 (2025-12-11)
-- ✅ Миграция с Google Cloud на VPS (ps.kz)
-- ✅ Обновлен CI/CD для работы через SSH
-- ✅ Добавлен Prometheus для сбора метрик
-- ✅ Добавлен Node Exporter для системных метрик
-- ✅ Создан скрипт автоматической настройки VPS
-- ✅ Добавлена документация по настройке GitHub Secrets
-- ✅ Реорганизованы конфигурации Grafana
-
-### v1.0.0 (2025-12-04)
-- ✅ Начальная версия
-- ✅ Loki для хранения логов
-- ✅ Grafana для визуализации
-- ✅ CI/CD через GitHub Actions для GCP
-- ✅ Работа через nginx на /grafana/
-- ✅ Retention 14 дней
-
----
-
-**Made with ❤️ for Proflyder projects**
+- [Grafana Docs](https://grafana.com/docs/grafana/latest/)
+- [Loki Docs](https://grafana.com/docs/loki/latest/)
+- [LogQL](https://grafana.com/docs/loki/latest/logql/)
+- [Promtail](https://grafana.com/docs/loki/latest/clients/promtail/)

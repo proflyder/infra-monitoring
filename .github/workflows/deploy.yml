@@ -5,182 +5,200 @@ on:
     branches: [ master ]
   workflow_dispatch:
 
+# Предотвращаем параллельные деплои
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false  # Ждем завершения текущего деплоя, не отменяем
+
 jobs:
+  # ═══════════════════════════════════════════════════════════════════
+  # Build and push config image to GHCR
+  # ═══════════════════════════════════════════════════════════════════
+  build:
+    name: Build Config Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-config
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push config image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Deploy to VPS
+  # ═══════════════════════════════════════════════════════════════════
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    outputs:
+      deploy_outcome: ${{ steps.deploy.outcome }}
+      smoke_tests_outcome: ${{ steps.smoke_tests.outcome }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       # ─────────────────────────────────────────────────────────────
-      # Настройка SSH для подключения к VPS
+      # Загрузка deployment скриптов на VPS
       # ─────────────────────────────────────────────────────────────
-      - name: Setup SSH
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-        run: |
-          # Проверка обязательных секретов
-          if [ -z "$SSH_PRIVATE_KEY" ]; then
-            echo "❌ ERROR: SSH_PRIVATE_KEY secret is not set!"
-            exit 1
-          fi
+      - name: Upload deployment scripts
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          source: ".github/scripts/*.sh"
+          target: "/tmp/infra-scripts"
+          strip_components: 2
 
-          if [ -z "$SSH_HOST" ]; then
-            echo "❌ ERROR: SSH_HOST secret is not set!"
-            exit 1
-          fi
-
-          if [ -z "$SSH_USER" ]; then
-            echo "❌ ERROR: SSH_USER secret is not set!"
-            exit 1
-          fi
-
-          # Установка дефолтного порта если не указан
-          if [ -z "$SSH_PORT" ]; then
-            SSH_PORT=22
-          fi
-
-          echo "🔧 Setting up SSH connection..."
-
-          # Создаём директорию для SSH
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-
-          # Сохраняем приватный ключ
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-
-          # Добавляем хост в known_hosts (отключаем проверку при первом подключении)
-          ssh-keyscan -p ${SSH_PORT} -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-
-          # Создаём SSH config для удобства
-          cat > ~/.ssh/config <<EOF
-          Host vps
-            HostName $SSH_HOST
-            User $SSH_USER
-            Port ${SSH_PORT}
-            IdentityFile ~/.ssh/deploy_key
-            StrictHostKeyChecking no
-            UserKnownHostsFile /dev/null
-            LogLevel ERROR
-          EOF
-
-          chmod 600 ~/.ssh/config
-
-          # Проверяем подключение
-          echo "🔍 Testing SSH connection..."
-          ssh vps "echo '✅ SSH connection successful!'"
+      - name: Set script permissions
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          timeout: 1m
+          script: |
+            chmod +x /tmp/infra-scripts/*.sh
 
       # ─────────────────────────────────────────────────────────────
-      # Деплой мониторинга на VPS
+      # Сохранение текущей версии для rollback
+      # ─────────────────────────────────────────────────────────────
+      - name: Save current version for rollback
+        id: backup
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          timeout: 1m
+          script: /tmp/infra-scripts/backup-version.sh
+
+      # ─────────────────────────────────────────────────────────────
+      # Деплой мониторинга на VPS через GHCR
       # ─────────────────────────────────────────────────────────────
       - name: Deploy monitoring stack
+        id: deploy
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.0.3
         env:
+          CONFIG_IMAGE: ghcr.io/${{ github.repository }}-config:latest
           GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
           GRAFANA_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          timeout: 5m
+          envs: CONFIG_IMAGE,GRAFANA_USER,GRAFANA_PASSWORD,GITHUB_TOKEN,GITHUB_ACTOR,COMMIT_SHA,COMMIT_MESSAGE
+          script: /tmp/infra-scripts/deploy-stack.sh
+
+      # ─────────────────────────────────────────────────────────────
+      # Smoke tests после деплоя
+      # ─────────────────────────────────────────────────────────────
+      - name: Smoke tests
+        id: smoke_tests
+        if: steps.deploy.outcome == 'success'
+        continue-on-error: true
+        uses: ./.github/actions/smoke-tests
+        with:
+          ssh_host: ${{ secrets.SSH_HOST }}
+          ssh_user: ${{ secrets.SSH_USER }}
+          ssh_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh_port: ${{ secrets.SSH_PORT || 22 }}
+          grafana_password: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+
+      # ─────────────────────────────────────────────────────────────
+      # Проверка результата деплоя
+      # ─────────────────────────────────────────────────────────────
+      - name: Check deployment status
+        if: always()
         run: |
-          if [ -z "$GRAFANA_PASSWORD" ]; then
-            echo "⚠️  WARNING: GRAFANA_ADMIN_PASSWORD is not set!"
-            echo "Grafana will use default password 'admin'"
+          if [[ "${{ steps.deploy.outcome }}" == "failure" ]] || [[ "${{ steps.smoke_tests.outcome }}" == "failure" ]]; then
+            echo "❌ Deployment failed, rollback job will be triggered"
+            exit 1
+          else
+            echo "✅ Deployment successful"
           fi
 
-          echo "🚀 Deploying monitoring stack to VPS..."
-
-          # Создаём временную директорию для файлов
-          TEMP_DIR=$(mktemp -d)
-
-          # Копируем все необходимые файлы
-          cp -r docker-compose.yml config "$TEMP_DIR/"
-
-          # Создаём .env файл с секретами
-          cat > "$TEMP_DIR/.env" <<EOF
-          GRAFANA_ADMIN_USER=${GRAFANA_USER:-admin}
-          GRAFANA_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
-          TZ=Asia/Almaty
-          EOF
-
-          # Создаём tar архив
-          tar -czf monitoring-stack.tar.gz -C "$TEMP_DIR" .
-
-          # Копируем архив на VPS
-          echo "📦 Uploading files to VPS..."
-          scp monitoring-stack.tar.gz vps:/tmp/
-
-          # Выполняем команды на VPS
-          echo "🔧 Setting up monitoring stack..."
-          ssh vps bash <<'ENDSSH'
-            set -e
-
-            echo '📂 Creating monitoring directory...'
-            sudo mkdir -p /opt/monitoring
-
-            echo '📦 Extracting files...'
-            sudo tar -xzf /tmp/monitoring-stack.tar.gz -C /opt/monitoring/
-            sudo rm /tmp/monitoring-stack.tar.gz
-
-            echo '🔒 Setting permissions...'
-            sudo chown -R $USER:$USER /opt/monitoring
-            sudo chmod 600 /opt/monitoring/.env
-
-            echo '🐳 Stopping old containers...'
-            cd /opt/monitoring
-            sudo docker compose down 2>/dev/null || true
-
-            echo '🐳 Starting monitoring stack...'
-            sudo docker compose up -d
-
-            echo '⏳ Waiting for services to start...'
-            sleep 15
-
-            echo '✅ Deployment completed!'
-          ENDSSH
-
-          # Очистка
-          rm -rf "$TEMP_DIR" monitoring-stack.tar.gz
-
-          echo "✅ Successfully deployed monitoring stack!"
+      # ─────────────────────────────────────────────────────────────
+      # Отправка аннотации в Grafana о успешном деплое
+      # ─────────────────────────────────────────────────────────────
+      - name: Send deployment annotation to Grafana
+        if: steps.deploy.outcome == 'success' && steps.smoke_tests.outcome == 'success'
+        continue-on-error: true
+        uses: ./.github/actions/grafana-annotation
+        with:
+          grafana_api_key: ${{ secrets.GRAFANA_API_KEY }}
+          annotation_type: success
+          commit_sha: ${{ github.sha }}
+          commit_message: ${{ github.event.head_commit.message }}
+          actor: ${{ github.actor }}
 
       # ─────────────────────────────────────────────────────────────
-      # Проверка здоровья после деплоя
+      # Очистка неиспользуемых Docker образов
       # ─────────────────────────────────────────────────────────────
-      - name: Health check
-        run: |
-          echo "🔍 Running health checks..."
-
-          ssh vps bash <<'ENDSSH'
-            echo '📊 Container status:'
-            sudo docker compose -f /opt/monitoring/docker-compose.yml ps
-
-            echo ''
-            echo '💾 Volume usage:'
-            sudo docker volume ls | grep monitoring || echo 'No monitoring volumes found yet'
-
-            echo ''
-            echo '🌐 Loki health:'
-            curl -s http://localhost:3100/ready && echo '✅ Loki is ready' || echo '❌ Loki is not ready'
-
-            echo ''
-            echo '📈 Grafana health:'
-            curl -s http://localhost:3000/api/health | grep -q 'ok' && echo '✅ Grafana is ready' || echo '❌ Grafana is not ready'
-
-            echo ''
-            echo '🖥️  Node Exporter health:'
-            curl -s http://localhost:9100/metrics > /dev/null && echo '✅ Node Exporter is ready' || echo '❌ Node Exporter is not ready'
-
-            echo ''
-            echo '📊 Prometheus health:'
-            curl -s http://localhost:9090/-/healthy > /dev/null && echo '✅ Prometheus is ready' || echo '❌ Prometheus is not ready'
-          ENDSSH
+      - name: Cleanup old Docker images
+        if: steps.deploy.outcome == 'success' && steps.smoke_tests.outcome == 'success'
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          timeout: 2m
+          script: /tmp/infra-scripts/cleanup-images.sh
 
       # ─────────────────────────────────────────────────────────────
-      # Вывод информации о доступе
+      # Вывод информации о доступе (только при успешном деплое)
       # ─────────────────────────────────────────────────────────────
       - name: Display access info
+        if: steps.deploy.outcome == 'success' && steps.smoke_tests.outcome == 'success'
         run: |
           echo ""
           echo "═══════════════════════════════════════════════════════"
@@ -191,13 +209,93 @@ jobs:
           echo "👤 Username: admin (or from GRAFANA_ADMIN_USER)"
           echo "🔑 Password: (from GRAFANA_ADMIN_PASSWORD secret)"
           echo ""
-          echo "📝 Next steps:"
-          echo "1. Configure nginx for Grafana (see config/nginx-grafana.conf)"
-          echo "2. Setup SSL certificate with certbot"
-          echo "3. Reload nginx: sudo systemctl reload nginx"
-          echo "4. Open https://proflyder.dev/grafana/ in browser"
+          echo "📝 Deployed version:"
+          echo "   Commit: ${{ github.sha }}"
+          echo "   Message: ${{ github.event.head_commit.message }}"
+          echo "   By: ${{ github.actor }}"
           echo ""
           echo "═══════════════════════════════════════════════════════"
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Rollback при ошибке деплоя
+  # ═══════════════════════════════════════════════════════════════════
+  rollback:
+    name: Rollback on Failure
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: failure()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ─────────────────────────────────────────────────────────────
+      # Загрузка deployment скриптов на VPS
+      # ─────────────────────────────────────────────────────────────
+      - name: Upload deployment scripts
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          source: ".github/scripts/*.sh"
+          target: "/tmp/infra-scripts"
+          strip_components: 2
+
+      - name: Set script permissions
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          timeout: 1m
+          script: |
+            chmod +x /tmp/infra-scripts/*.sh
+
+      # ─────────────────────────────────────────────────────────────
+      # Откат к предыдущей версии
+      # ─────────────────────────────────────────────────────────────
+      - name: Rollback to previous version
+        id: rollback
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
+          GRAFANA_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          timeout: 5m
+          envs: GRAFANA_USER,GRAFANA_PASSWORD
+          script: /tmp/infra-scripts/rollback-stack.sh
+
+      # ─────────────────────────────────────────────────────────────
+      # Smoke tests после rollback
+      # ─────────────────────────────────────────────────────────────
+      - name: Verify rollback with smoke tests
+        if: steps.rollback.outcome == 'success'
+        uses: ./.github/actions/smoke-tests
+        with:
+          ssh_host: ${{ secrets.SSH_HOST }}
+          ssh_user: ${{ secrets.SSH_USER }}
+          ssh_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh_port: ${{ secrets.SSH_PORT || 22 }}
+          grafana_password: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+
+      # ─────────────────────────────────────────────────────────────
+      # Отправка аннотации в Grafana о rollback
+      # ─────────────────────────────────────────────────────────────
+      - name: Send rollback annotation to Grafana
+        continue-on-error: true
+        uses: ./.github/actions/grafana-annotation
+        with:
+          grafana_api_key: ${{ secrets.GRAFANA_API_KEY }}
+          annotation_type: rollback
+          commit_sha: ${{ github.sha }}
+          actor: ${{ github.actor }}
 
 # ═══════════════════════════════════════════════════════════════════
 # Требуемые GitHub Secrets:
@@ -205,25 +303,105 @@ jobs:
 #
 # SSH_PRIVATE_KEY            - Приватный SSH ключ для доступа к VPS
 # SSH_HOST                   - IP адрес или домен VPS сервера
-# SSH_USER                   - Пользователь для SSH подключения (обычно: deploy)
+# SSH_USER                   - Пользователь для SSH подключения
 # SSH_PORT                   - Порт SSH (опционально, по умолчанию: 22)
 # GRAFANA_ADMIN_USER         - Username для Grafana (опционально, по умолчанию: admin)
 # GRAFANA_ADMIN_PASSWORD     - Пароль для Grafana admin пользователя
+# GRAFANA_API_KEY            - API ключ для отправки аннотаций (опционально, см. docs/GRAFANA_API_SETUP.md)
+#
+# GITHUB_TOKEN автоматически доступен в GitHub Actions (не нужно создавать)
 #
 # ═══════════════════════════════════════════════════════════════════
 # Как работает деплой:
 # ═══════════════════════════════════════════════════════════════════
 #
+# JOB 1: Build (build)
+# ────────────────────
 # 1. Checkout кода из репозитория
-# 2. Настройка SSH подключения к VPS
-# 3. Создание tar архива с конфигами и .env
-# 4. Копирование архива на VPS через SCP
-# 5. SSH на VPS и выполнение команд:
-#    - Создание директории /opt/monitoring
-#    - Распаковка архива
+# 2. Setup Docker Buildx для мультиплатформенных сборок
+# 3. Login в GitHub Container Registry (ghcr.io)
+# 4. Генерация Docker метаданных и тегов
+# 5. Build Docker образа с конфигами и push в GHCR
+#    Образ: ghcr.io/username/infra-monitoring-config:latest
+#
+# JOB 2: Deploy (deploy)
+# ───────────────────────
+# 1. Ждем завершения build job
+# 2. Сохранение текущей версии для rollback (DEPLOYED_VERSION.backup)
+# 3. SSH на VPS (appleboy/ssh-action) и выполнение:
+#    - Login в GHCR используя GITHUB_TOKEN
+#    - Pull образа с конфигами из GHCR
+#    - Извлечение конфигов из образа в /opt/monitoring
+#    - Создание .env файла с секретами
+#    - Сохранение информации о версии (DEPLOYED_VERSION)
 #    - docker compose down (остановка старых контейнеров)
 #    - docker compose up -d (запуск новых контейнеров)
-# 6. Health check всех сервисов
-# 7. Вывод информации о доступе
+# 4. Smoke tests всех сервисов (с exit code)
+#    - Проверка количества запущенных контейнеров
+#    - Health check Loki, Grafana, Node Exporter, Prometheus
+#    - Тест логина в Grafana
+# 5. Проверка статуса и Grafana аннотация при успехе
+# 6. Вывод информации о доступе (только при успешном деплое)
+#
+# JOB 3: Rollback (rollback)
+# ──────────────────────────
+# Запускается только если deploy job failed
+# 1. SSH на VPS и выполнение:
+#    - Восстановление DEPLOYED_VERSION.backup
+#    - Pull предыдущего образа
+#    - Извлечение предыдущих конфигов
+#    - Перезапуск docker compose
+# 2. Отправка Grafana аннотации о rollback
+#
+# ═══════════════════════════════════════════════════════════════════
+# Преимущества текущего деплоя:
+# ═══════════════════════════════════════════════════════════════════
+#
+# ✅ Версионирование конфигов (каждый commit = новый образ с тегом)
+# ✅ Semantic Versioning (git tags v1.0.0 → образы с версиями)
+# ✅ Автоматический rollback при ошибках деплоя или smoke tests
+# ✅ Smoke tests после rollback для гарантии восстановления
+# ✅ Отслеживание версий на VPS (файл DEPLOYED_VERSION)
+# ✅ Комплексные smoke tests с проверкой логина в Grafana
+# ✅ Аннотации в Grafana (деплои отмечаются на всех графиках)
+# ✅ Кеширование Docker слоев (быстрые сборки)
+# ✅ Concurrency control (предотвращение параллельных деплоев)
+# ✅ Детальное логирование версий для отладки
+# ✅ Автоматическая очистка старых образов после деплоя
+# ✅ Не нужно копировать файлы через SCP
+# ✅ Единый источник правды для конфигов
+# ✅ GitHub автоматически очищает старые образы (GHCR)
+# ✅ Безопасный деплой с возможностью отката
+#
+# ═══════════════════════════════════════════════════════════════════
+# Semantic Versioning:
+# ═══════════════════════════════════════════════════════════════════
+#
+# При создании git тега workflow автоматически создаст образы с версиями:
+#
+#   git tag -a v1.2.0 -m "Production release 1.2.0"
+#   git push origin v1.2.0
+#
+# Будут созданы образы:
+#   - ghcr.io/repo-config:v1.2.0    (полная версия)
+#   - ghcr.io/repo-config:1.2        (мажорная.минорная)
+#   - ghcr.io/repo-config:latest     (последняя версия из master)
+#   - ghcr.io/repo-config:master-abc123 (commit SHA)
+#
+# Для rollback на конкретную версию:
+#   docker pull ghcr.io/repo-config:v1.2.0
+#   docker run --rm -v /opt/monitoring:/output ghcr.io/repo-config:v1.2.0
+#   cd /opt/monitoring && docker compose restart
+#
+# ═══════════════════════════════════════════════════════════════════
+# GitHub Actions используемые в этом workflow:
+# ═══════════════════════════════════════════════════════════════════
+#
+# - actions/checkout@v4              - Checkout кода из репозитория
+# - docker/setup-buildx-action@v3    - Setup Docker Buildx
+# - docker/login-action@v3           - Login в Docker registry
+# - docker/metadata-action@v5        - Генерация Docker метаданных (+ semver)
+# - docker/build-push-action@v5      - Build и push Docker образа
+# - appleboy/ssh-action@v1.0.3       - Выполнение команд через SSH
 #
 # ═══════════════════════════════════════════════════════════════════

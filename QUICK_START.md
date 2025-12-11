@@ -1,156 +1,121 @@
-# 🚀 Quick Start Guide
+# Quick Start
 
-## Первый запуск на production (VPS от ps.kz)
+## Первый запуск
 
-### 1. Настройка VPS сервера
-
+### 1. Настройка VPS
 ```bash
-# Подключитесь к VPS
-ssh root@your_server_ip
-
-# Скопируйте скрипт настройки с локальной машины
-# (на локальной машине)
-scp scripts/setup-vps.sh root@your_server_ip:/tmp/
-
-# Запустите скрипт настройки на VPS
-# (на VPS)
-bash /tmp/setup-vps.sh
-
-# Следуйте инструкциям скрипта
+scp scripts/setup-vps.sh root@vps_ip:/tmp/
+ssh root@vps_ip "bash /tmp/setup-vps.sh"
 ```
 
-### 2. Настройка SSH ключей
-
+### 2. Настройка GitHub Secrets
 ```bash
-# На локальной машине сгенерируйте SSH ключ для деплоя
-ssh-keygen -t rsa -b 4096 -C "github-actions-deploy" -f ~/.ssh/github_deploy_key
-# НЕ устанавливайте passphrase (просто Enter)
+# Генерация SSH ключа
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/github_deploy_key -N ""
 
-# Скопируйте публичный ключ
+# Добавь публичный ключ на VPS
 cat ~/.ssh/github_deploy_key.pub
-
-# На VPS добавьте публичный ключ для пользователя deploy
-ssh deploy@your_server_ip
-mkdir -p ~/.ssh
-chmod 700 ~/.ssh
-echo "ваш_публичный_ключ" >> ~/.ssh/authorized_keys
+ssh root@vps_ip
+sudo su - github-ci-cd-integration
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+echo "PASTE_KEY" >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
-exit
-
-# Проверьте SSH подключение
-ssh -i ~/.ssh/github_deploy_key deploy@your_server_ip
 ```
 
-### 3. Настройка GitHub Secrets
-
-Добавьте в GitHub → Settings → Secrets → Actions:
-
+**GitHub → Settings → Secrets → Actions:**
 ```
-SSH_PRIVATE_KEY=<содержимое ~/.ssh/github_deploy_key>
-SSH_HOST=<IP адрес вашего VPS>
-SSH_USER=deploy
-GRAFANA_ADMIN_PASSWORD=<надёжный пароль>
+SSH_PRIVATE_KEY    = содержимое ~/.ssh/github_deploy_key
+SSH_HOST           = IP адрес VPS
+SSH_USER           = github-ci-cd-integration
+GRAFANA_ADMIN_PASSWORD = openssl rand -base64 32
 ```
 
-**Подробная инструкция:** [docs/GITHUB_SECRETS_SETUP.md](docs/GITHUB_SECRETS_SETUP.md)
+**Подробно:** [docs/GITHUB_SECRETS_SETUP.md](docs/GITHUB_SECRETS_SETUP.md)
 
-### 4. Деплой через GitHub Actions
-
+### 3. Деплой
 ```bash
-# Создайте репозиторий на GitHub (если еще не создан)
-cd infra-monitoring
-git add .
-git commit -m "Configure monitoring for VPS"
 git push origin master
-
-# GitHub Actions автоматически задеплоит на VPS
-# Смотрите прогресс: GitHub → Actions → Deploy Monitoring Stack
+# GitHub Actions → Build → Deploy → Smoke tests
 ```
 
-### 5. Настройка Nginx на VPS
-
+### 4. Настройка nginx
 ```bash
-# SSH на VPS
-ssh deploy@your_server_ip
-
-# Откройте конфиг nginx
+ssh github-ci-cd-integration@vps_ip
 sudo nano /etc/nginx/sites-available/proflyder.dev
-
-# Добавьте блок location из config/nginx-grafana.conf
-
-# Проверьте конфиг
-sudo nginx -t
-
-# Перезагрузите nginx
-sudo systemctl reload nginx
+# Добавь location из config/nginx-default-full.conf
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
-### 6. Откройте Grafana
-
+### 5. Открой Grafana
 ```
 URL: https://proflyder.dev/grafana/
-Логин: admin
-Пароль: (из GRAFANA_ADMIN_PASSWORD)
+Login: admin
+Password: из GRAFANA_ADMIN_PASSWORD
+```
+
+### 6. Grafana API Key (опционально)
+После первого деплоя:
+1. **Administration** → **Service accounts** → **Add service account**
+2. Name: `GitHub Actions Deploy`, Role: `Editor`
+3. **Add token** → Скопируй
+4. GitHub Secrets → `GRAFANA_API_KEY` = токен
+
+**Подробно:** [docs/GRAFANA_API_SETUP.md](docs/GRAFANA_API_SETUP.md)
+
+---
+
+## Production release (Semantic Versioning)
+
+```bash
+git tag -a v1.0.0 -m "Production release 1.0.0"
+git push origin v1.0.0
+# Создаст образы: v1.0.0, 1.0, latest
 ```
 
 ---
 
-## Подключение Currency Bot
+## Rollback
 
-### 1. В проекте proflyder-tgbot уже добавлен Promtail
+### Автоматический
+При ошибке деплоя или smoke tests workflow откатится автоматически.
 
-Файлы уже созданы:
-- `docker compose.yml` - добавлен сервис promtail
-- `config/promtail-config.yml` - конфигурация
-
-### 2. Задеплойте currency-bot
-
+### Ручной
 ```bash
-cd proflyder-tgbot
-git add .
-git commit -m "Add Promtail for log shipping"
-git push origin master
-
-# CI/CD задеплоит бота с Promtail
+# На VPS
+cat /opt/monitoring/DEPLOYED_VERSION.backup
+PREV_IMAGE=$(grep "^Image:" /opt/monitoring/DEPLOYED_VERSION.backup | cut -d' ' -f2)
+sudo docker pull "$PREV_IMAGE"
+sudo docker run --rm -v /opt/monitoring:/output "$PREV_IMAGE"
+cd /opt/monitoring && sudo docker compose restart
 ```
 
-### 3. Проверьте логи в Grafana
-
-```
-1. Откройте Grafana → Explore
-2. Выберите Loki datasource
-3. Запрос: {job="currency-bot"}
-4. Должны появиться логи!
-```
+**Подробно:** [docs/GHCR_DEPLOYMENT.md](docs/GHCR_DEPLOYMENT.md)
 
 ---
 
 ## Troubleshooting
 
-### Логи не появляются в Grafana
-
+### Деплой failed
 ```bash
-# На VM проверьте Loki
-curl http://localhost:3100/ready
-
-# Проверьте Grafana
-curl http://localhost:3000/api/health
-
-# Проверьте логи Promtail в currency-bot
-docker logs promtail-currency-bot
-
-# Проверьте что Promtail может достучаться до Loki
-docker exec promtail-currency-bot wget -O- http://host.docker.internal:3100/ready
+# GitHub → Actions → последний run → смотри логи
+# Проверь Secrets: Settings → Secrets → Actions
 ```
 
-### 502 Bad Gateway при открытии Grafana
-
+### Grafana не открывается
 ```bash
-# Проверьте что контейнер запущен
-docker ps | grep grafana
-
-# Проверьте nginx конфиг
+ssh github-ci-cd-integration@vps_ip
+sudo docker compose -f /opt/monitoring/docker-compose.yml ps
+sudo docker compose -f /opt/monitoring/docker-compose.yml logs grafana
 sudo nginx -t
+```
+
+### Логи не появляются
+```bash
+# Проверь Loki
+curl http://localhost:3100/ready
+
+# Проверь Grafana datasource
+# Grafana → Connections → Data sources → Loki → Test
 ```
 
 ---
@@ -158,36 +123,41 @@ sudo nginx -t
 ## Полезные команды
 
 ```bash
-# Проверить статус мониторинга на VM
-cd /opt/monitoring
-docker compose ps
-docker compose logs -f
+# Статус
+cd /opt/monitoring && sudo docker compose ps
 
-# Перезапустить мониторинг
-docker compose restart
+# Логи
+sudo docker compose logs -f grafana
 
-# Обновить конфиги (после git push)
-# GitHub Actions сделает это автоматически
+# Перезапуск
+sudo docker compose restart
 
-# Посмотреть размер логов в Loki
-docker exec loki du -sh /loki
+# Текущая версия
+cat /opt/monitoring/DEPLOYED_VERSION
+
+# Ручная очистка
+sudo docker image prune -a --filter "until=720h" --force
 ```
 
 ---
 
-## Следующие шаги
+## Документация
 
-✅ Мониторинг работает
-✅ Логи currency-bot собираются
-
-Можно добавить:
-- [ ] Создать дашборды в Grafana
-- [ ] Настроить алерты
-- [ ] Добавить Prometheus для метрик
-- [ ] Подключить другие проекты
+- [GITHUB_SECRETS_SETUP.md](docs/GITHUB_SECRETS_SETUP.md) - Настройка GitHub Secrets
+- [GHCR_DEPLOYMENT.md](docs/GHCR_DEPLOYMENT.md) - Деплой через GHCR
+- [GRAFANA_API_SETUP.md](docs/GRAFANA_API_SETUP.md) - API ключ для annotations
+- [GRAFANA_CONFIGURATION.md](docs/GRAFANA_CONFIGURATION.md) - Конфигурация Grafana
 
 ---
 
-**Готово! 🎉**
+## Что работает автоматически
 
-Подробная документация: [README.md](README.md)
+✅ Деплой при push в master (с concurrency control)
+✅ Build Docker образа в GHCR
+✅ Smoke tests после деплоя
+✅ Rollback при ошибках + smoke tests после rollback
+✅ Annotations в Grafana (деплой + rollback)
+✅ Очистка образов после деплоя (старые config images)
+✅ Очистка образов еженедельно (каждое воскресенье 00:00 UTC)
+✅ Semantic Versioning (при git tag)
+✅ Детальное логирование версий

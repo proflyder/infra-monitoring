@@ -1,0 +1,98 @@
+name: Smoke Tests
+description: Run comprehensive health checks for monitoring stack
+
+inputs:
+  ssh_host:
+    description: SSH host address
+    required: true
+  ssh_user:
+    description: SSH username
+    required: true
+  ssh_key:
+    description: SSH private key
+    required: true
+  ssh_port:
+    description: SSH port
+    required: false
+    default: '22'
+  grafana_password:
+    description: Grafana admin password
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Run smoke tests via SSH
+      uses: appleboy/ssh-action@v1.0.3
+      env:
+        GRAFANA_PASSWORD: ${{ inputs.grafana_password }}
+      with:
+        host: ${{ inputs.ssh_host }}
+        username: ${{ inputs.ssh_user }}
+        key: ${{ inputs.ssh_key }}
+        port: ${{ inputs.ssh_port }}
+        timeout: 3m
+        envs: GRAFANA_PASSWORD
+        script: |
+          set -e
+
+          echo '🔍 Running smoke tests...'
+          echo ''
+
+          echo '📊 Container status:'
+          sudo docker compose -f /opt/monitoring/docker-compose.yml ps
+          RUNNING_CONTAINERS=$(sudo docker compose -f /opt/monitoring/docker-compose.yml ps --status running | wc -l)
+          if [ "$RUNNING_CONTAINERS" -lt 4 ]; then
+            echo "❌ Not all containers are running!"
+            echo ''
+            echo '📋 Checking container logs for errors:'
+            sudo docker compose -f /opt/monitoring/docker-compose.yml logs --tail=50 grafana
+            exit 1
+          fi
+          echo "✅ All containers are running"
+          echo ''
+
+          echo '🌐 Loki health check:'
+          if ! curl -f -s http://localhost:3100/ready > /dev/null; then
+            echo '❌ Loki is not ready'
+            exit 1
+          fi
+          echo '✅ Loki is ready'
+          echo ''
+
+          echo '📈 Grafana health check:'
+          if ! curl -f -s http://localhost:3000/api/health | grep -q 'ok'; then
+            echo '❌ Grafana is not ready'
+            exit 1
+          fi
+          echo '✅ Grafana is ready'
+          echo ''
+
+          echo '🔐 Grafana login test:'
+          LOGIN_RESPONSE=$(curl -s -X POST http://localhost:3000/api/login \
+            -H "Content-Type: application/json" \
+            -d "{\"user\":\"admin\",\"password\":\"${GRAFANA_PASSWORD}\"}")
+          if ! echo "$LOGIN_RESPONSE" | grep -q 'message'; then
+            echo '❌ Grafana login failed'
+            exit 1
+          fi
+          echo '✅ Grafana login successful'
+          echo ''
+
+          echo '🖥️  Node Exporter health check:'
+          if ! curl -f -s http://localhost:9100/metrics > /dev/null; then
+            echo '❌ Node Exporter is not ready'
+            exit 1
+          fi
+          echo '✅ Node Exporter is ready'
+          echo ''
+
+          echo '📊 Prometheus health check:'
+          if ! curl -f -s http://localhost:9090/-/healthy > /dev/null; then
+            echo '❌ Prometheus is not ready'
+            exit 1
+          fi
+          echo '✅ Prometheus is ready'
+          echo ''
+
+          echo '✅ All smoke tests passed!'

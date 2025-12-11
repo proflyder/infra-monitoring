@@ -100,6 +100,13 @@ services:
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
 
       # ─────────────────────────────────────────────────────────────
+      # Локализация и временная зона
+      # ─────────────────────────────────────────────────────────────
+      - TZ=Asia/Almaty
+      - GF_DEFAULT_TIMEZONE=Asia/Almaty
+      - GF_DATE_FORMATS_DEFAULT_TIMEZONE=Asia/Almaty
+
+      # ─────────────────────────────────────────────────────────────
       # Дополнительные настройки
       # ─────────────────────────────────────────────────────────────
       - GF_INSTALL_PLUGINS=
@@ -108,6 +115,8 @@ services:
 
     volumes:
       - grafana-data:/var/lib/grafana
+      # Main configuration
+      - ./config/grafana/grafana.ini:/etc/grafana/grafana.ini
       # Datasource provisioning
       - ./config/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
       # Dashboard provisioning
