@@ -1,224 +1,138 @@
-# Grafana Dashboards using Jsonnet + Grafonnet
+# Grafana Dashboards - Jsonnet + Grafonnet
 
-Этот проект использует [Jsonnet](https://jsonnet.org/) и [Grafonnet](https://github.com/grafana/grafonnet) для программного создания дашбордов Grafana.
+Модульная библиотека для создания Grafana дашбордов.
 
-## Преимущества
-
-- **Переиспользование кода**: Общие компоненты и функции в `lib/common.libsonnet`
-- **Читаемость**: Компактный код вместо многостраничных JSON файлов
-- **DRY principle**: Не повторяйся - создавай функции для повторяющихся паттернов
-- **Параметризация**: Легко создавать похожие дашборды с разными параметрами
-- **Git-friendly**: Осмысленные diff'ы в git вместо огромных JSON изменений
-
-## Установка
-
-### Быстрая установка (macOS/Linux)
-
-```bash
-./scripts/setup-jsonnet.sh
-```
-
-### Ручная установка
-
-#### macOS
-```bash
-brew install jsonnet jsonnet-bundler
-```
-
-#### Ubuntu/Debian
-```bash
-sudo apt-get install jsonnet
-# jsonnet-bundler нужно установить через Go
-go install github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb@latest
-```
-
-#### Установка зависимостей
-```bash
-jb install
-```
-
-Это установит grafonnet библиотеку в директорию `vendor/`.
-
-## Структура проекта
+## Структура
 
 ```
-dashboards-jsonnet/
-├── lib/
-│   └── common.libsonnet       # Общие компоненты и helpers
-├── infra/
-│   └── system.jsonnet         # VM System Metrics dashboard
-└── proflyder-service/
-    ├── api.jsonnet            # API Requests dashboard
-    ├── logs.jsonnet           # Logs dashboard
-    └── currency.jsonnet       # Exchange Rates dashboard
+lib/
+├── core.libsonnet           # Datasources, thresholds
+├── colors.libsonnet         # Цветовые схемы
+├── units.libsonnet          # Единицы измерения
+├── layouts.libsonnet        # Grid positioning
+├── panels.libsonnet         # Panel factories
+├── dashboards.libsonnet     # Dashboard templates
+├── queries/
+│   ├── prometheus.libsonnet # Prometheus query builders
+│   └── loki.libsonnet       # Loki query builders
+└── common.libsonnet         # Main entry point
 ```
 
-## Использование
-
-### Собрать все дашборды
-
-```bash
-make dashboards
-```
-
-Это сгенерирует JSON файлы в `config/grafana/dashboards/`.
-
-### Собрать конкретный дашборд
-
-```bash
-jsonnet -J vendor dashboards-jsonnet/infra/system.jsonnet -o config/grafana/dashboards/infra/system.json
-```
-
-### Валидация
-
-```bash
-make validate
-```
-
-### Очистка сгенерированных файлов
-
-```bash
-make clean
-```
-
-### Watch mode (автоматическая пересборка)
-
-```bash
-make watch
-```
-
-Требует установки `entr`:
-```bash
-brew install entr
-```
-
-## Разработка дашбордов
-
-### Базовый пример
+## Quick Start
 
 ```jsonnet
 local g = import 'github.com/grafana/grafonnet/gen/grafonnet-latest/main.libsonnet';
 local common = import '../lib/common.libsonnet';
 
-local prometheus = common.datasources.prometheus;
+local dashboards = common.dashboards;
+local panels = common.panels;
+local layouts = common.layouts;
 
-common.defaultDashboard(
-  'My Dashboard',
-  tags=['my-tag'],
-  uid='my-dashboard'
+dashboards.system('VM Metrics', uid='vm-metrics', tags=['system'])
++ g.dashboard.withPanels(
+  layouts.grid([
+    layouts.halfWidth(panels.system.cpuGauge(), height=8),
+    layouts.halfWidth(panels.system.memoryGauge(), height=8),
+    layouts.halfWidth(panels.system.cpuTimeseries(), height=10),
+    layouts.halfWidth(panels.system.memoryTimeseries(), height=10),
+  ])
 )
-+ g.dashboard.withPanels([
-  common.defaultTimeseries('My Panel', prometheus)
-  + g.panel.timeSeries.queryOptions.withTargets([
-    g.query.prometheus.new(
-      prometheus.uid,
-      'my_metric'
-    )
-    + g.query.prometheus.withLegendFormat('My Metric'),
-  ])
-  + g.panel.timeSeries.gridPos.withW(12)
-  + g.panel.timeSeries.gridPos.withH(8),
-])
 ```
 
-### Доступные компоненты в common.libsonnet
+## API Reference
 
-#### Datasources
-- `common.datasources.prometheus` - Prometheus datasource
-- `common.datasources.loki` - Loki datasource
-
-#### Dashboard helpers
-- `common.defaultDashboard(title, tags, uid)` - Базовый dashboard с стандартными настройками
-
-#### Panel helpers
-- `common.defaultTimeseries(title, datasource)` - Timeseries панель
-- `common.defaultGauge(title, datasource)` - Gauge панель
-- `common.defaultLogs(title, datasource)` - Logs панель
-- `common.defaultStat(title, datasource)` - Stat панель
-
-#### Query helpers
-- `common.prometheusQuery(expr, legendFormat, refId)` - Prometheus query
-- `common.lokiQuery(expr, legendFormat, refId)` - Loki query
-
-#### Thresholds
-- `common.thresholds.cpu` - CPU пороги (70% yellow, 90% red)
-- `common.thresholds.memory` - Memory пороги (75% yellow, 90% red)
-
-### Создание переиспользуемых компонентов
-
-В `lib/common.libsonnet` можно добавлять свои функции:
+### Panels
 
 ```jsonnet
-// Пример: функция для создания CPU gauge
-cpuGauge(title, expr)::
-  self.defaultGauge(title, self.datasources.prometheus)
-  + g.panel.gauge.queryOptions.withTargets([
-    self.prometheusQuery(expr, 'CPU Usage'),
-  ])
-  + g.panel.gauge.standardOptions.withUnit('percent')
-  + g.panel.gauge.standardOptions.thresholds.withSteps(self.thresholds.cpu.steps),
+// System
+panels.system.cpuGauge()
+panels.system.memoryGauge()
+panels.system.cpuTimeseries()
+panels.system.memoryTimeseries()
+
+// Currency
+panels.currency.rateTimeseries(title, from, to)
+panels.currency.rateStat(title, from, to)
+panels.currency.rateHistoryTable(title, limit)
+
+// API
+panels.api.incomingRequests(title, job)
+panels.api.outgoingRequests(title, job)
+
+// Logs
+panels.logs.all(title, job)
+panels.logs.byLevelTimeseries(title, job)
+panels.logs.errors(title, job)
+panels.logs.incoming(title, job)
+panels.logs.outgoing(title, job)
 ```
 
-### Параметризация дашбордов
-
-Создайте функцию для генерации похожих дашбордов:
+### Layouts
 
 ```jsonnet
-local createServiceDashboard(serviceName) =
-  common.defaultDashboard(
-    '%s - Metrics' % serviceName,
-    tags=[serviceName],
-    uid='%s-metrics' % serviceName
-  )
-  + g.dashboard.withPanels([
-    // ... панели с фильтром job=serviceName
-  ]);
+layouts.fullWidth(panel, height)    // 24 cols
+layouts.halfWidth(panel, height)    // 12 cols
+layouts.thirdWidth(panel, height)   // 8 cols
+layouts.quarterWidth(panel, height) // 6 cols
 
-// Создать дашборды для нескольких сервисов
-createServiceDashboard('service-a')
+layouts.grid(panels, width, height)
+layouts.twoColumns(left, right)
 ```
 
-## Workflow
+### Query Builders
 
-### Локальная разработка
+```jsonnet
+// Prometheus
+queries.prometheus.cpu.usage()
+queries.prometheus.memory.usagePercent()
+queries.prometheus.disk.usagePercent('/')
 
-1. Редактируй `.jsonnet` файлы в `dashboards-jsonnet/`
-2. Запусти `make dashboards` для генерации JSON
-3. Grafana автоматически подхватит изменения (provisioning настроен)
-4. Коммить нужно только `.jsonnet` источники (JSON генерируется в CI/CD)
+// Loki
+queries.loki.byLevel(job, level)
+queries.loki.countByLevel(job)
+queries.loki.api.incomingCount(job)
+queries.loki.currency.rate(job, from, to, field)
+```
 
-### CI/CD Pipeline
+### Dashboards
 
-При push в master:
-1. GitHub Actions запускает Docker build
-2. Docker multi-stage build:
-   - Stage 1: Устанавливает jsonnet/jb и собирает дашборды
-   - Stage 2: Копирует сгенерированные JSON в финальный образ
-3. Образ пушится в GHCR
-4. VPS скачивает образ и разворачивает конфиги
+```jsonnet
+dashboards.system(title, uid, tags)
+dashboards.service(title, uid, tags)
+dashboards.logs(title, uid, tags)
+dashboards.api(title, uid, tags)
+dashboards.currency(title, uid, tags)
+```
 
-**Важно:** Не нужно коммитить сгенерированные JSON файлы - они собираются автоматически в Docker!
+## Установка и сборка
 
-## Tips
+```bash
+# Установка зависимостей
+./scripts/setup-jsonnet.sh
+# или
+make install-deps
 
-- Используй `make validate` перед коммитом
-- Используй `make watch` при активной разработке
-- Создавай функции в `lib/common.libsonnet` для повторяющихся паттернов
-- Документируй сложные функции комментариями
-- Смотри [официальную документацию Grafonnet](https://grafana.github.io/grafonnet/)
+# Сборка дашбордов
+make dashboards
 
-## Troubleshooting
+# Валидация
+make validate
 
-### `jsonnet: command not found`
-Установи jsonnet: `brew install jsonnet`
+# Очистка
+make clean
+```
 
-### `jb: command not found`
-Установи jsonnet-bundler: `brew install jsonnet-bundler`
+## Docker build (без локальной установки)
 
-### Ошибка импорта grafonnet
-Запусти `jb install` для установки зависимостей
+```bash
+make dashboards-docker
+```
 
-### Дашборд не обновляется в Grafana
-1. Проверь что запустил `make dashboards`
-2. Проверь что JSON файл обновился в `config/grafana/dashboards/`
-3. Grafana provisioning обновляется каждые 10 секунд (см. `dashboards.yml`)
+## Добавление нового дашборда
+
+1. Создайте `.jsonnet` файл в нужной директории
+2. Используйте готовые панели и layouts
+3. Запустите `make dashboards`
+4. Коммитьте только `.jsonnet` файлы (JSON генерируется в CI)
+
+Полная документация: [QUICK_REFERENCE.md](QUICK_REFERENCE.md)

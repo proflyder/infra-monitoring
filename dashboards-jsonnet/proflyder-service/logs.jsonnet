@@ -1,76 +1,43 @@
 local g = import 'github.com/grafana/grafonnet/gen/grafonnet-latest/main.libsonnet';
 local common = import '../lib/common.libsonnet';
 
-local loki = common.datasources.loki;
+// Use new libraries
+local dashboards = common.dashboards;
+local panels = common.panels;
+local layouts = common.layouts;
 
-common.defaultDashboard(
+// Create logs dashboard
+dashboards.logs(
   'Currency Bot Logs',
-  tags=['logs', 'currency-bot'],
-  uid='currency-bot-logs'
+  uid='currency-bot-logs',
+  tags=['logs', 'currency-bot']
 )
-+ g.dashboard.withTimezone('browser')
 + g.dashboard.withPanels(
-  g.util.grid.makeGrid([
-    // Application Logs
-    common.defaultLogs('Application Logs', loki)
-    + g.panel.logs.queryOptions.withTargets([
-      g.query.loki.new(
-        loki.uid,
-        '{job="currency-bot"}'
-      )
-      + g.query.loki.withRefId('A'),
-    ])
-    + g.panel.logs.gridPos.withW(24)
-    + g.panel.logs.gridPos.withH(20),
+  layouts.grid([
+    // Row 1: All application logs (full width)
+    layouts.fullWidth(
+      panels.logs.all(),
+      height=20
+    ),
 
-    // Logs by Level
-    common.defaultTimeseries('Logs by Level (rate)', loki)
-    + g.panel.timeSeries.queryOptions.withTargets([
-      g.query.loki.new(
-        loki.uid,
-        'sum by (level) (count_over_time({job="currency-bot", level!=""} [$__interval]))'
-      )
-      + g.query.loki.withLegendFormat('{{level}}')
-      + g.query.loki.withRefId('A'),
-    ])
-    + g.panel.timeSeries.fieldConfig.defaults.custom.withShowPoints('auto')
-    + g.panel.timeSeries.gridPos.withW(12)
-    + g.panel.timeSeries.gridPos.withH(8),
+    // Row 2: Logs by level chart and error logs
+    layouts.halfWidth(
+      panels.logs.byLevelTimeseries(),
+      height=8
+    ),
+    layouts.halfWidth(
+      panels.logs.errors(),
+      height=8
+    ),
 
-    // Error Logs Only
-    common.defaultLogs('Error Logs Only', loki)
-    + g.panel.logs.queryOptions.withTargets([
-      g.query.loki.new(
-        loki.uid,
-        '{job="currency-bot", level="ERROR"}'
-      )
-      + g.query.loki.withRefId('A'),
-    ])
-    + g.panel.logs.gridPos.withW(12)
-    + g.panel.logs.gridPos.withH(8),
-
-    // Incoming API Logs
-    common.defaultLogs('Incoming API Logs', loki)
-    + g.panel.logs.queryOptions.withTargets([
-      g.query.loki.new(
-        loki.uid,
-        '{job="currency-bot", direction="incoming"}'
-      )
-      + g.query.loki.withRefId('A'),
-    ])
-    + g.panel.logs.gridPos.withW(12)
-    + g.panel.logs.gridPos.withH(10),
-
-    // Outgoing API Logs
-    common.defaultLogs('Outgoing API Logs', loki)
-    + g.panel.logs.queryOptions.withTargets([
-      g.query.loki.new(
-        loki.uid,
-        '{job="currency-bot", direction="outgoing"}'
-      )
-      + g.query.loki.withRefId('A'),
-    ])
-    + g.panel.logs.gridPos.withW(12)
-    + g.panel.logs.gridPos.withH(10),
+    // Row 3: Incoming and outgoing API logs
+    layouts.halfWidth(
+      panels.logs.incoming(),
+      height=10
+    ),
+    layouts.halfWidth(
+      panels.logs.outgoing(),
+      height=10
+    ),
   ], panelWidth=12, panelHeight=8, startY=0)
 )
