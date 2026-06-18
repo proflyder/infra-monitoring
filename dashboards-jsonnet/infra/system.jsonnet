@@ -23,6 +23,10 @@ dashboards.system(
       panels.system.memoryGauge(),
       height=8
     ),
+    layouts.halfWidth(
+      panels.system.diskGauge('Root Disk Usage (%)', '/'),
+      height=8
+    ),
 
     // Row 2: CPU timeseries
     layouts.halfWidth(

@@ -98,6 +98,18 @@ local loki = core.datasources.loki;
       + g.panel.gauge.standardOptions.thresholds.withMode('absolute')
       + g.panel.gauge.standardOptions.thresholds.withSteps(core.thresholds.memory.steps),
 
+    // Disk usage gauge
+    diskGauge:: function(title='Disk Usage (%)', mountpoint='/')
+      $.base.gauge(title, prometheus)
+      + g.panel.gauge.queryOptions.withTargets([
+        promQueries.disk.usagePercent(mountpoint, 'Disk Usage', 'A'),
+      ])
+      + g.panel.gauge.standardOptions.withUnit(units.percentage.percent)
+      + g.panel.gauge.standardOptions.withMin(0)
+      + g.panel.gauge.standardOptions.withMax(100)
+      + g.panel.gauge.standardOptions.thresholds.withMode('absolute')
+      + g.panel.gauge.standardOptions.thresholds.withSteps(core.thresholds.disk.steps),
+
     // CPU timeseries with modes
     cpuTimeseries:: function(title='CPU Usage Over Time (%)')
       $.base.timeseries(title, prometheus)

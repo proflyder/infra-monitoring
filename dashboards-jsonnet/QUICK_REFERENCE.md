@@ -29,6 +29,7 @@ dashboards.currency(title, uid, tags)    // Currency rates
 ```jsonnet
 panels.system.cpuGauge()              // CPU gauge with thresholds
 panels.system.memoryGauge()           // Memory gauge
+panels.system.diskGauge()             // Disk usage gauge for /
 panels.system.cpuTimeseries()         // CPU chart (all modes)
 panels.system.memoryTimeseries()      // Memory chart
 ```
