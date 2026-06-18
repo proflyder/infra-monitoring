@@ -13,31 +13,21 @@ dashboards.system(
   tags=['system', 'metrics', 'currency-bot']
 )
 + g.dashboard.withPanels(
-  layouts.grid([
+  [
     // Row 1: Gauges
-    layouts.halfWidth(
-      panels.system.cpuGauge(),
-      height=8
-    ),
-    layouts.halfWidth(
-      panels.system.memoryGauge(),
-      height=8
-    ),
-    layouts.halfWidth(
-      panels.system.diskGauge('Root Disk Usage (%)', '/'),
-      height=8
-    ),
+    panels.system.cpuGauge()
+    + layouts.gridPos(0, 0, 12, 8),
+    panels.system.memoryGauge()
+    + layouts.gridPos(12, 0, 12, 8),
 
-    // Row 2: CPU timeseries
-    layouts.halfWidth(
-      panels.system.cpuTimeseries(),
-      height=10
-    ),
+    // Row 2: CPU and memory timeseries
+    panels.system.cpuTimeseries()
+    + layouts.gridPos(0, 8, 12, 10),
+    panels.system.memoryTimeseries()
+    + layouts.gridPos(12, 8, 12, 10),
 
-    // Row 3: Memory timeseries
-    layouts.halfWidth(
-      panels.system.memoryTimeseries(),
-      height=10
-    ),
-  ], panelWidth=12, panelHeight=8, startY=0)
+    // Row 3: Disk usage
+    panels.system.diskGauge('Root Disk Usage (%)', '/')
+    + layouts.gridPos(0, 18, 24, 8),
+  ]
 )
