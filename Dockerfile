@@ -18,12 +18,12 @@
 # ═══════════════════════════════════════════════════════════════════
 # Stage 1: Build dashboards from Jsonnet
 # ═══════════════════════════════════════════════════════════════════
-FROM golang:1.23-alpine AS jsonnet-builder
+FROM golang:1.24-alpine AS jsonnet-builder
 
 RUN apk add --no-cache git make
 
 # Install jsonnet and jsonnet-bundler
-RUN go install github.com/google/go-jsonnet/cmd/jsonnet@latest && \
+RUN go install github.com/google/go-jsonnet/cmd/jsonnet@v0.22.0 && \
     go install github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb@latest
 
 WORKDIR /build
